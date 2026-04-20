@@ -1,6 +1,5 @@
 // Remember the Golden Rule: everything is a widget!
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
 
 // APP ROUTE
 import 'app_routes.dart';
@@ -15,7 +14,7 @@ void main() {
 }
 
 // 3. MaterialApp: The Foundation
-// StatelessWidget: The App's Blueprint / the Main Wrapper 
+// StatelessWidget: The App's Blueprint / the Main Wrapper
 class PeriodTrackingApp extends StatelessWidget {
   // Constructor
   const PeriodTrackingApp({super.key});
@@ -26,10 +25,10 @@ class PeriodTrackingApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Period Tracker',
-      debugShowCheckedModeBanner: false, // removes the "DEBUG" tag on the top right corner of the screen.
-      
+      debugShowCheckedModeBanner:
+          false, // removes the "DEBUG" tag on the top right corner of the screen.
       // 1. Set the starting screen
-      initialRoute: AppRoutes.root,
+      initialRoute: AppRoutes.dashboard,
 
       // 2. Load the map from app_routes.dart file
       routes: AppRoutes.define(),
