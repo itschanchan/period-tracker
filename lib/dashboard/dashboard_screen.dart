@@ -1,45 +1,132 @@
 import 'package:flutter/material.dart';
-import 'package:calendar_date_picker2/calendar_date_picker2.dart';
+import 'package:provider/provider.dart';
+// import 'package:clock/clock.dart';
+// import 'package:intl/intl.dart'; // For date formatting
+// Useful for date formatting.
+// import 'package:hugeicons/hugeicons.dart';
 import 'package:flutter/cupertino.dart';
 
+import '../providers/cycle_provider.dart';
+
+// Dashboard Components
+import 'widgets/period_calendar.dart';
+import 'widgets/period_description.dart';
+import 'widgets/floating_nav.dart';
+import 'widgets/health_log.dart';
+
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key, required this.title});
+  const DashboardScreen({
+    super.key,
+    required this.title,
+    required this.simulatedToday,
+  });
 
   final String title; // Initializes the title of the page.
+  final DateTime simulatedToday;
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  // Helper to check if a date falls within a specific range
+  // bool _isDateInRange(DateTime date, DateTime start, DateTime end) {
+  //   final d = DateTime(date.year, date.month, date.day);
+  //   final s = DateTime(start.year, start.month, start.day);
+  //   final e = DateTime(end.year, end.month, end.day);
+  //   return (d.isAtSameMomentAs(s) || d.isAfter(s)) &&
+  //       (d.isAtSameMomentAs(e) || d.isBefore(e));
+  // }
+
   // Multi Scroll: step 1
   List<DateTime?> _dates = []; // Initialize an empty list for selected dates.
-  Key _calendarKey =
-      UniqueKey(); // use a key to recalculate the calendar's position.
 
-  DateTime _focusedDay = DateTime.now(); // Initialized current date.
+  int _calendarVersion =
+      0; // Incremented to force the calendar to scroll to today.
 
   bool _isEditingPeriodDates = false;
-  List<DateTime?> _initialDatesForEdit =
-      []; // Array to store dates before editing for potential cancellation.
+
+  // Tracks which date the user is currently inspecting for details
+  /* 
+    Must stay in the Dashboard because it's shared between the calendar
+    and the info Container below it.
+  */
+  DateTime? _selectedViewDate;
+
+  // stores dates before editing for potential cancellation.
+  List<DateTime?> _initialDatesForEdit = [];
+
+  // Tracks if the 'Today' indicator is currently visible in the scroll view.
+  bool _isTodayVisible = true;
+
+  // Tracks if the 'Today' indicator is above the current viewport (scrolled past).
+  bool _isTodayAbove = false;
 
   @override
+  void initState() {
+    super.initState();
+    final DateTime now = widget.simulatedToday;
+    _selectedViewDate = DateTime(now.year, now.month, now.day);
+  }
+
+  // build method
+  @override
   Widget build(BuildContext context) {
+    // The dashboard "finds" the provider that was created in the main.dart
+    final cycleData = context.watch<CycleProvider>();
+
+    // Initialize the selected view date to today if nothing is selected yet
+    /* 
+      now and todayDate
+
+      these are used both to initialize _selectedViewDate and to handle the 
+      "Go to Today" button logic, it's easier to keep them in the Dashboard
+      and pass them down where needed.
+    */
+    final DateTime now = widget.simulatedToday;
+
+    // Capture the mock clock time once at the start of the build.
+    // This ensures consistency across all calculations in this build cycle.
+    // final DateTime now = clock.now();
+    final DateTime todayDate = DateTime(now.year, now.month, now.day);
+
+    final DateTime firstDate = DateTime(now.year - 2, now.month, now.day);
+    final DateTime lastDate = DateTime(now.year + 2, now.month, now.day);
+
     // Checks if the device is an iOS device.
     // bool isApple = Platform.isIOS; (not platform aware)
     bool isApple =
         Theme.of(context).platform == TargetPlatform.iOS; // platform-aware
 
-    // initialize DatePicker
-    DateTime selectedDate = DateTime.now();
+    // Identify the range for the info container: "from the very first record to TODAY"
+    final List<DateTime> recordedDates = cycleData.selectedDates
+        .whereType<DateTime>()
+        .toList();
+    DateTime? firstPeriodDate;
+    if (recordedDates.isNotEmpty) {
+      // Find the earliest recorded period date
+      firstPeriodDate = recordedDates.reduce((a, b) => a.isBefore(b) ? a : b);
+      // Normalize to midnight for accurate comparison
+      firstPeriodDate = DateTime(
+        firstPeriodDate.year,
+        firstPeriodDate.month,
+        firstPeriodDate.day,
+      );
+    }
+
+    // Conditional rendering for Edit/Cancel/Save buttons
+    final String periodButtonText = cycleData.selectedDates.isEmpty
+        ? 'Add Period Dates'
+        : 'Edit Period Dates';
 
     // Retrieve the username from the route arguments
     final String displayUsername =
-        (ModalRoute.of(context)?.settings.arguments as String?) ?? "Guest";
+        (ModalRoute.of(context)?.settings.arguments as String?) ?? "Bebi";
 
     return Scaffold(
-      // Horizontal bar at the top of the screen.
+      // Top app bar with title and back button.
       appBar: AppBar(
+        automaticallyImplyLeading: false, // Removes the back arrow button.
         title: Text(
           'Dashboard',
           style: const TextStyle(fontWeight: FontWeight.bold),
@@ -47,253 +134,234 @@ class _DashboardScreenState extends State<DashboardScreen> {
         backgroundColor: Theme.of(
           context,
         ).colorScheme.inversePrimary /* safe for multi-platform checking */,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 20),
+            child: GestureDetector(
+              onTap: () => print("Profile Clicked!"),
+              child: const CircleAvatar(
+                backgroundImage: NetworkImage(
+                  'https://static.zerochan.net/Sailor.Chibi.Moon.full.3236721.jpg',
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Welcome Message
-              GestureDetector(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  child: Text(
-                    'Welcome, $displayUsername!',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  // Welcome Message
+                  GestureDetector(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Text(
+                        'Welcome, $displayUsername!',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  // Edit Period Dates Button
+                  // Conditional rendering for Edit/Cancel/Save buttons
+                  _isEditingPeriodDates
+                      ? Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            // Cancel Button
+                            isApple
+                                ? CupertinoButton(
+                                    color: Colors.grey,
+                                    onPressed: () {
+                                      setState(() {
+                                        _dates = List.from(
+                                          _initialDatesForEdit,
+                                        );
+                                        _isEditingPeriodDates = false;
+                                        _calendarVersion++;
+                                      });
+                                    },
+                                    child: const Text(
+                                      'Cancel',
+                                      style: TextStyle(color: Colors.white),
+                                    ),
+                                  )
+                                : ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.grey,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        _dates = List.from(
+                                          _initialDatesForEdit,
+                                        );
+                                        _isEditingPeriodDates = false;
+                                        _calendarVersion++;
+                                      });
+                                    },
+                                    child: const Text('Cancel'),
+                                  ),
+
+                            // Save Button
+                            isApple
+                                ? CupertinoButton(
+                                    color: Colors.pink,
+                                    onPressed: () {
+                                      setState(() {
+                                        // Save the local draft to the provider
+                                        cycleData.updateDates(_dates);
+                                        _calendarVersion++; // Jump to today after saving
+                                        _isEditingPeriodDates = false;
+                                      });
+                                    },
+                                    child: const Text(
+                                      'Save',
+                                      style: TextStyle(color: Colors.white),
+                                    ),
+                                  )
+                                : ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.pink,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        // Save the local draft to the provider
+                                        cycleData.updateDates(_dates);
+                                        _calendarVersion++; // Jump to today after saving
+                                        _isEditingPeriodDates = false;
+                                      });
+                                    },
+                                    child: const Text('Save'),
+                                  ),
+                          ],
+                        )
+                      : // Edit Period Dates Button
+                        isApple
+                      ? CupertinoButton(
+                          color: Colors.pink,
+                          onPressed: () {
+                            setState(() {
+                              _isEditingPeriodDates = true;
+                              // Sync local list with current provider data before editing
+                              _dates = List.from(cycleData.selectedDates);
+                              _initialDatesForEdit = List.from(_dates);
+                              _calendarVersion++; // Refresh UI to enable selection and center view
+                            });
+                          },
+                          child: Text(
+                            periodButtonText,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        )
+                      : ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.pink,
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _isEditingPeriodDates = true;
+                              // Sync local list with current provider data before editing
+                              _dates = List.from(cycleData.selectedDates);
+                              _initialDatesForEdit = List.from(_dates);
+                              _calendarVersion++; // Refresh UI to enable selection and center view
+                            });
+                          },
+                          child: Text(periodButtonText),
+                        ),
+                ],
               ),
 
               const SizedBox(height: 20),
 
-              // Multi-Select Scroll Calendar
-              // Step 2: Multi Scroll = Fixed Day Indicator (Header)
-              // We build this manually so it stays fixed while you scroll the page.
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: ['S', 'M', 'T', 'W', 'TH', 'F', 'S']
-                      .asMap()
-                      .entries
-                      .map((entry) {
-                        final int index = entry.key;
-                        final String day = entry.value;
-                        Color textColor = Colors.pink; // Default color
-
-                        // Customize Saturday's 'S' (index 6) to be a lighter pink
-                        if (index == 6) {
-                          textColor = Colors.blueGrey;
+              Stack(
+                children: [
+                  // Main Interactive Calendar
+                  PeriodCalendar(
+                    calendarVersion: _calendarVersion,
+                    selectedViewDate: _selectedViewDate!,
+                    firstDate: firstDate,
+                    lastDate: lastDate,
+                    now: now,
+                    todayDate: todayDate,
+                    isEditingPeriodDates: _isEditingPeriodDates,
+                    value: _isEditingPeriodDates
+                        ? _dates
+                        : cycleData.selectedDates,
+                    onDateTapped: (date) {
+                      setState(() {
+                        _selectedViewDate = date;
+                      });
+                    },
+                    onDatesChanged: (updatedDates) {
+                      setState(() {
+                        _dates = updatedDates;
+                      });
+                    },
+                    onTodayVisibilityChanged: (isVisible, isAbove, isManualScroll) {
+                      // Only show button if user is manually scrolling
+                      // Always allow hiding the button if today becomes visible
+                      if (isVisible || isManualScroll) {
+                        if (_isTodayVisible != isVisible ||
+                            _isTodayAbove != isAbove) {
+                          setState(() {
+                            _isTodayVisible = isVisible;
+                            _isTodayAbove = isAbove;
+                          });
                         }
+                      }
+                    },
+                  ),
 
-                        return Expanded(
-                          child: Center(
-                            child: Text(
-                              day,
-                              style: TextStyle(
-                                color: textColor,
-                                fontWeight: FontWeight.bold,
-                              ),
+                  // Floating 'Go to Today' Arrow
+                  if (!_isTodayVisible)
+                    Positioned(
+                      bottom: 10,
+                      right: 10,
+                      child: _isTodayAbove
+                          ? _buildScrollToTodayButton(
+                              isUp: true,
+                              isApple: isApple,
+                              today: todayDate,
+                            )
+                          : _buildScrollToTodayButton(
+                              isUp: false,
+                              isApple: isApple,
+                              today: todayDate,
                             ),
-                          ),
-                        );
-                      })
-                      .toList(),
-                ),
+                    ),
+                ],
               ),
 
-              // Wrapped in SizedBox to provide a fixed height inside a nested SingleChildScrollView
-              SizedBox(
-                height:
-                    400, // Added height to allow the scrollable calendar to render within the SingleChildScrollView
-                child: CalendarDatePicker2(
-                  key: _calendarKey, // declare the key here.
-                  config: CalendarDatePicker2Config(
-                    disableMonthPicker: true,
-                    /*
-                      NOTES:
-                      - .single = Single Date Picker
-                      - .multi = Multi Date Picker
-                      - .range = Range Date Picker
-                    */
-                    // displayDayOfWeek:
-                    //     false, // Hide the built-in day of week labels
-                    calendarType: CalendarDatePicker2Type.multi,
-                    calendarViewMode: CalendarDatePicker2Mode.scroll,
-                    selectedDayHighlightColor: Colors.pink,
+              const SizedBox(height: 8),
 
-                    // Hides the built-in Scroll Day Header
-                    hideScrollViewTopHeader: true,
-
-                    // Hides the built-in day labels
-                    weekdayLabelTextStyle: const TextStyle(
-                      color: Colors.transparent,
-                    ),
-                    // Disable selection for all days unless we are in editing mode
-                    // It handles 'read-only' logic.
-                    selectableDayPredicate: (day) => _isEditingPeriodDates,
-                  ),
-                  // The value dusplayed by the calendar.
-                  // When editing, _dates is directly modified by onValueChanged.
-                  value: _dates,
-                  onValueChanged: (dates) {
-                    // Only allow changes to the state if we are in editing mode
-                    if (_isEditingPeriodDates) {
-                      setState(() {
-                        _dates = dates;
-                      });
+              // INFO CONTAINER (Updates based on _selectedViewDate)
+              if (_selectedViewDate != null && !_isEditingPeriodDates)
+                PeriodDescription(
+                  selectedViewDate: _selectedViewDate,
+                  todayDate: todayDate,
+                  cycleData: cycleData,
+                  onConfirmPeriod: (date, isConfirmed) {
+                    if (isConfirmed) {
+                      cycleData.addDate(date);
                     }
                   },
                 ),
-              ),
 
-              const SizedBox(height: 20),
-
-              // Back to current day button
-              isApple
-                  ? CupertinoButton.filled(
-                      onPressed: () {
-                        setState(() {
-                          // To "Jump" to today without clearing other dates,
-                          // today must be the first item in the list for this package's scroll mode.
-                          // Note: This approach selects Today.
-                          _dates = [
-                            DateTime.now(),
-                            ..._dates.where(
-                              (d) => d != null && d.day != DateTime.now().day,
-                            ),
-                          ];
-                        });
-                        _calendarKey =
-                            UniqueKey(); // Force the widget to rebuild and scroll to today
-                      },
-                      child: const Text('Go to Today'),
-                    )
-                  : ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          // Selection logic same as above
-                          _dates = [
-                            DateTime.now(),
-                            ..._dates.where(
-                              (d) => d != null && d.day != DateTime.now().day,
-                            ),
-                          ];
-                          _calendarKey =
-                              UniqueKey(); // Force the widget to rebuild and scroll to today
-                        });
-                      },
-                      child: const Text('Go to Today'),
-                    ),
-
-              const SizedBox(height: 20),
-
-              // Edit Period Dates Button
-              // Conditional rendering for Edit/Cancel/Save buttons
-              _isEditingPeriodDates
-                  ? Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        // Cancel Button
-                        isApple
-                            ? CupertinoButton(
-                                color: Colors.grey,
-                                onPressed: () {
-                                  setState(() {
-                                    _dates = List.from(_initialDatesForEdit);
-                                    _isEditingPeriodDates = false;
-                                    _calendarKey = UniqueKey();
-                                  });
-                                },
-                                child: const Text(
-                                  'Cancel',
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                              )
-                            : ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.grey,
-                                  foregroundColor: Colors.white,
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    _dates = List.from(_initialDatesForEdit);
-                                    _isEditingPeriodDates = false;
-                                    _calendarKey = UniqueKey();
-                                  });
-                                },
-                                child: const Text('Cancel'),
-                              ),
-
-                        // Save Button
-                        isApple
-                            ? CupertinoButton(
-                                color: Colors.pink,
-                                onPressed: () {
-                                  setState(() {
-                                    // _dates is already updated by onValueChanged
-                                    _isEditingPeriodDates = false;
-                                  });
-                                },
-                                child: const Text(
-                                  'Save',
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                              )
-                            : ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.pink,
-                                  foregroundColor: Colors.white,
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    // _dates is already updated by onValueChanged
-                                    _isEditingPeriodDates = false;
-                                  });
-                                },
-                                child: const Text('Save'),
-                              ),
-                      ],
-                    )
-                  : // Edit Period Dates Button
-                    isApple
-                  ? CupertinoButton(
-                      color: Colors.pink,
-                      onPressed: () {
-                        setState(() {
-                          _isEditingPeriodDates = true;
-                          _initialDatesForEdit = List.from(
-                            _dates,
-                          ); // Store current dates for potential revert
-                          _calendarKey =
-                              UniqueKey(); // Refresh UI to enable selection
-                        });
-                      },
-                      child: const Text(
-                        'Edit Period Dates',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    )
-                  : ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.pink,
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _isEditingPeriodDates = true;
-                          _initialDatesForEdit = List.from(
-                            _dates,
-                          ); // Store current dates for potential revert
-                          _calendarKey =
-                              UniqueKey(); // Refresh UI to enable selection
-                        });
-                      },
-                      child: const Text('Edit Period Dates'),
-                    ),
+              if (_selectedViewDate != null && !_isEditingPeriodDates)
+                HealthLog(
+                  selectedViewDate: _selectedViewDate!,
+                  todayDate: todayDate,
+                ),
 
               const SizedBox(height: 20),
 
@@ -356,50 +424,56 @@ class _DashboardScreenState extends State<DashboardScreen> {
               //     ),
               //   ],
               // ),
-              // Navigation Bar
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.all(10),
-                    child: Text(
-                      'Navigation Bar',
-                      style: TextStyle(fontSize: 24),
-                    ),
-                  ),
-                ],
-              ),
 
-              Container(
-                // Margin (space outside)
-                margin: const EdgeInsets.symmetric(horizontal: 20),
-                // Padding (space inside)
-                padding: const EdgeInsets.all(15),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(15),
-                  border: Border.all(color: Colors.blue, width: 2),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: const [
-                    Icon(Icons.camera_alt, color: Colors.blue, size: 30),
-                    Icon(Icons.video_library, color: Colors.blue, size: 30),
-                    Icon(Icons.settings, color: Colors.blue, size: 30),
-                    Icon(Icons.chat_bubble, color: Colors.blue, size: 30),
-                  ],
-                ),
-              ),
+              // Floating Navigation Bar
+              // const FloatingNav(),
+              // const SizedBox(height: 20),
             ],
           ),
         ),
       ),
       // Floating Action Button
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {},
-        tooltip: 'Add',
-        child: const Icon(Icons.add),
+      // floatingActionButton: FloatingActionButton(
+      //   onPressed: () {},
+      //   tooltip: 'Add',
+      //   child: const Icon(Icons.add),
+      // ),
+    );
+  }
+
+  /// Builds the 'Go to Today' button as a separate component logic
+  Widget _buildScrollToTodayButton({
+    required bool isUp,
+    required bool isApple,
+    required DateTime today,
+  }) {
+    final VoidCallback onPressed = () {
+      setState(() {
+        _selectedViewDate = today;
+        _isTodayVisible = true;
+        _calendarVersion++;
+      });
+    };
+
+    if (isApple) {
+      return CupertinoButton(
+        padding: EdgeInsets.zero,
+        color: Colors.pink.withOpacity(0.8),
+        borderRadius: BorderRadius.circular(25),
+        onPressed: onPressed,
+        child: Icon(
+          isUp ? CupertinoIcons.arrow_up : CupertinoIcons.arrow_down,
+          color: Colors.white,
+        ),
+      );
+    }
+
+    return FloatingActionButton.small(
+      backgroundColor: Colors.pink.withOpacity(0.8),
+      onPressed: onPressed,
+      child: Icon(
+        isUp ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+        color: Colors.white,
       ),
     );
   }
@@ -407,7 +481,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
 /* 
   NOTES:
-    - onValueChanged - acts as a second layer of securitym
+    - onValueChanged - acts as a second layer of security,
     it ensures that even if a tap event were to slip through,
     the _dates state remains unchanged unless _isEditingPeriodDates
     is true.

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 // import 'dart:io'; // Required for Platform.isIOS (this is solely for mobile platforms, not compatible with the web)
 
-import '../app_routes.dart';
+import 'app_routes.dart';
 
 class LoginScreen extends StatefulWidget {
   // final bool isLogggedIn;
@@ -53,8 +53,9 @@ class _LoginScreenState extends State<LoginScreen> {
         // _displayUsername = _userNameController.text;
       });
 
-      Navigator.pushNamed(
+      Navigator.pushReplacementNamed(
         context,
+        // AppRoutes.login,
         AppRoutes.dashboard,
         arguments: _userNameController.text,
       );
@@ -105,10 +106,25 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     // Logo
                     Image.network(
-                      "https://cdn-icons-png.freepik.com/256/9978/9978583.png?semt=ais_white_label",
-                      width: null,
+                      "https://cdn-icons-png.freepik.com/256/9978/9978583.png",
+                      width: 100,
                       height: 100,
                       fit: BoxFit.cover,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return const SizedBox(
+                          height: 100,
+                          width: 100,
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Icon(
+                          Icons.broken_image,
+                          size: 100,
+                          color: Colors.pink,
+                        );
+                      },
                     ),
 
                     const SizedBox(height: 10),
@@ -139,7 +155,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     Form(
                       key: _formKey,
                       child: Column(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.start,
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           // Username Row

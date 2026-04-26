@@ -12,12 +12,20 @@ class AppRoutes {
   static const String dashboard = '/dashboard';
   static const String register = '/register';
 
-  static Map<String, WidgetBuilder> define() {
+  // Pass the simulatedToday in the parameters
+  static Map<String, WidgetBuilder> define(
+    ValueNotifier<DateTime> mockTodayNotifier,
+  ) {
     return {
       root: (context) => const LoginScreen(),
       login: (context) => const LoginScreen(),
       register: (context) => const RegisterScreen(),
-      dashboard: (context) => const DashboardScreen(title: 'Dashboard'),
+      dashboard: (context) => ValueListenableBuilder<DateTime>(
+        valueListenable: mockTodayNotifier,
+        builder: (context, date, _) {
+          return DashboardScreen(title: 'Dashboard', simulatedToday: date);
+        },
+      ),
     };
   }
 }

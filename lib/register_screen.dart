@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
 
 import '../app_routes.dart';
 
@@ -15,23 +14,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscureText = true;
 
   DateTime? selectedDate;
-  TextEditingController _dateController = TextEditingController();
+  final TextEditingController _dateController = TextEditingController();
 
   // initialize DatePicker
   Future<void> _selectDate() async {
-    final DateTime? _pickedDate = await showDatePicker(
+    final DateTime? pickedDate = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
       firstDate: DateTime(1900),
       lastDate: DateTime(2100),
     );
 
-    if (_pickedDate != null) {
+    if (pickedDate != null) {
       setState(() {
-        _dateController.text = _pickedDate.toString().split(" ")[0];
+        _dateController.text = pickedDate.toString().split(" ")[0];
       });
     } else {
-      selectedDate = _pickedDate;
+      selectedDate = pickedDate;
     }
   }
 

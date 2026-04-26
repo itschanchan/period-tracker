@@ -1,10 +1,15 @@
 // Remember the Golden Rule: everything is a widget!
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 // APP ROUTE
 import 'app_routes.dart';
+import '/providers/cycle_provider.dart';
 
 // import 'dart:io'; // Required for Platform.isIOS (this is solely for mobile platforms, not compatible with the web)
+
+// Global debug date (change this and hot reload)
+final ValueNotifier<DateTime> mockToday = ValueNotifier(DateTime(2026, 4, 27));
 
 // 1. The Ignition Point
 void main() {
@@ -23,21 +28,25 @@ class PeriodTrackingApp extends StatelessWidget {
   // Returns the a Widget Tree
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Period Tracker',
-      debugShowCheckedModeBanner:
-          false, // removes the "DEBUG" tag on the top right corner of the screen.
-      // 1. Set the starting screen
-      initialRoute: AppRoutes.dashboard,
+    // 1. Define your mock date here.
+    // Simply change this date and save (Hot Reload) to move "Today" in the app.
+    // final DateTime mockToday = DateTime.now();
 
-      // 2. Load the map from app_routes.dart file
-      routes: AppRoutes.define(),
-
-      // 3. Set the global theme
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.pinkAccent),
+    return ChangeNotifierProvider(
+      create: (context) => CycleProvider(),
+      child: MaterialApp(
+        title: 'Period Tracker',
+        debugShowCheckedModeBanner:
+            false, // removes the "DEBUG" tag on the top right corner of the screen.
+        // 1. Set the starting screen
+        initialRoute: AppRoutes.dashboard,
+        // 2. Load the map from app_routes.dart file
+        routes: AppRoutes.define(mockToday),
+        // 3. Set the global theme
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: Colors.pinkAccent),
+        ),
       ),
-      // home: const MyHomePage(title: 'Period Tracker: Home Page'),
     );
   }
 }
