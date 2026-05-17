@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 // import 'package:clock/clock.dart';
@@ -5,14 +6,16 @@ import 'package:provider/provider.dart';
 // Useful for date formatting.
 // import 'package:hugeicons/hugeicons.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+// Project files
 import '../providers/cycle_provider.dart';
+import '../backend/auth_service.dart';
 
 // Dashboard Components
 import 'widgets/period_calendar.dart';
 import 'widgets/period_description.dart';
-import 'widgets/floating_nav.dart';
-import 'widgets/health_log.dart';
+import 'widgets/daily_monitor.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({
@@ -28,7 +31,23 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
+/// State representing the 'Today' marker's position and visibility for the Scroll Spy.
+class TodayVisibilityState {
+  final bool isVisible;
+  final bool isAbove;
+  final bool isManualScroll;
+
+  TodayVisibilityState({
+    this.isVisible = true,
+    this.isAbove = false,
+    this.isManualScroll = false,
+  });
+}
+
 class _DashboardScreenState extends State<DashboardScreen> {
+  final AuthService _authService = AuthService();
+  StreamSubscription<AuthState>? _authSubscription;
+
   // Helper to check if a date falls within a specific range
   // bool _isDateInRange(DateTime date, DateTime start, DateTime end) {
   //   final d = DateTime(date.year, date.month, date.day);
@@ -41,10 +60,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Multi Scroll: step 1
   List<DateTime?> _dates = []; // Initialize an empty list for selected dates.
 
-  int _calendarVersion =
-      0; // Incremented to force the calendar to scroll to today.
-
   bool _isEditingPeriodDates = false;
+
+  // Scroll Trigger: Signals the calendar to jump to a date without rebuilding the Dashboard.
+  final ValueNotifier<DateTime?> _scrollTriggerNotifier =
+      ValueNotifier<DateTime?>(null);
 
   // Tracks which date the user is currently inspecting for details
   /* 
@@ -56,17 +76,92 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // stores dates before editing for potential cancellation.
   List<DateTime?> _initialDatesForEdit = [];
 
-  // Tracks if the 'Today' indicator is currently visible in the scroll view.
-  bool _isTodayVisible = true;
-
-  // Tracks if the 'Today' indicator is above the current viewport (scrolled past).
-  bool _isTodayAbove = false;
+  // Scroll Spy: Tracks 'Today' visibility without rebuilding the whole Dashboard.
+  final ValueNotifier<TodayVisibilityState> _todayVisibilityNotifier =
+      ValueNotifier(TodayVisibilityState());
 
   @override
   void initState() {
     super.initState();
     final DateTime now = widget.simulatedToday;
     _selectedViewDate = DateTime(now.year, now.month, now.day);
+
+    // Listen for auth state changes to rebuild the UI when login succeeds via Google.
+    _authSubscription = _authService.onAuthStateChange.listen((data) async {
+      debugPrint(
+        'Auth State Changed: ${data.event} | User: ${data.session?.user.email}',
+      );
+
+      // Only fetch data if the user just signed in or restored a session.
+      // This prevents redundant fetches on every token refresh.
+      final bool shouldFetch =
+          data.event == AuthChangeEvent.signedIn ||
+          data.event == AuthChangeEvent.initialSession;
+
+      if (shouldFetch && data.session != null && mounted) {
+        try {
+          final dates = await _authService.fetchPeriodDates();
+          if (mounted) {
+            context.read<CycleProvider>().updateDates(dates);
+          }
+        } catch (e) {
+          debugPrint('Error fetching period dates: $e');
+        }
+      }
+
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    _todayVisibilityNotifier.dispose();
+    _scrollTriggerNotifier.dispose();
+    super.dispose();
+  }
+
+  void _showLoginModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'FlowTrack Login',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              const Text('Sign in to sync your cycle data and settings.'),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    try {
+                      await _authService.signInWithGoogle();
+                      // Note: On Web, the lines below will not run due to page redirect
+                    } catch (e) {
+                      debugPrint('Login Error: $e');
+                    }
+                    if (context.mounted) Navigator.pop(context);
+                  },
+                  icon: const Icon(Icons.account_circle),
+                  label: const Text('Sign-in with Google'),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   // build method
@@ -135,17 +230,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
           context,
         ).colorScheme.inversePrimary /* safe for multi-platform checking */,
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 20),
-            child: GestureDetector(
-              onTap: () => print("Profile Clicked!"),
-              child: const CircleAvatar(
-                backgroundImage: NetworkImage(
-                  'https://static.zerochan.net/Sailor.Chibi.Moon.full.3236721.jpg',
+          _authService.currentUser == null
+              ? Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: TextButton(
+                    onPressed: () => _showLoginModal(context),
+                    child: const Text(
+                      'Login',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.pinkAccent,
+                      ),
+                    ),
+                  ),
+                )
+              : Padding(
+                  padding: const EdgeInsets.only(right: 20),
+                  child: GestureDetector(
+                    onTap: () => print("Profile Clicked!"),
+                    child: CircleAvatar(
+                      backgroundColor: Colors.pink.shade100,
+                      child: _authService.currentUser?.email != null
+                          ? Text(
+                              _authService.currentUser!.email![0].toUpperCase(),
+                            )
+                          : const Icon(Icons.person, color: Colors.pink),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ),
         ],
       ),
       body: SingleChildScrollView(
@@ -157,16 +269,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
                   // Welcome Message
-                  GestureDetector(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      child: Text(
-                        'Welcome, $displayUsername!',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                  Text(
+                    'Welcome, ${_authService.currentUser?.email?.split('@')[0] ?? displayUsername}!',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                   // Edit Period Dates Button
@@ -185,7 +292,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           _initialDatesForEdit,
                                         );
                                         _isEditingPeriodDates = false;
-                                        _calendarVersion++;
+                                        _scrollTriggerNotifier.value =
+                                            todayDate;
                                       });
                                     },
                                     child: const Text(
@@ -204,7 +312,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           _initialDatesForEdit,
                                         );
                                         _isEditingPeriodDates = false;
-                                        _calendarVersion++;
+                                        _scrollTriggerNotifier.value =
+                                            todayDate;
                                       });
                                     },
                                     child: const Text('Cancel'),
@@ -214,13 +323,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             isApple
                                 ? CupertinoButton(
                                     color: Colors.pink,
-                                    onPressed: () {
+                                    onPressed: () async {
                                       setState(() {
                                         // Save the local draft to the provider
                                         cycleData.updateDates(_dates);
-                                        _calendarVersion++; // Jump to today after saving
+                                        _scrollTriggerNotifier.value =
+                                            todayDate;
                                         _isEditingPeriodDates = false;
                                       });
+                                      await _authService.syncFullData(
+                                        cycleData,
+                                      );
                                     },
                                     child: const Text(
                                       'Save',
@@ -232,13 +345,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       backgroundColor: Colors.pink,
                                       foregroundColor: Colors.white,
                                     ),
-                                    onPressed: () {
+                                    onPressed: () async {
                                       setState(() {
                                         // Save the local draft to the provider
                                         cycleData.updateDates(_dates);
-                                        _calendarVersion++; // Jump to today after saving
+                                        _scrollTriggerNotifier.value =
+                                            todayDate;
                                         _isEditingPeriodDates = false;
                                       });
+                                      await _authService.syncFullData(
+                                        cycleData,
+                                      );
                                     },
                                     child: const Text('Save'),
                                   ),
@@ -254,7 +371,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               // Sync local list with current provider data before editing
                               _dates = List.from(cycleData.selectedDates);
                               _initialDatesForEdit = List.from(_dates);
-                              _calendarVersion++; // Refresh UI to enable selection and center view
+                              _scrollTriggerNotifier.value = todayDate;
                             });
                           },
                           child: Text(
@@ -273,7 +390,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               // Sync local list with current provider data before editing
                               _dates = List.from(cycleData.selectedDates);
                               _initialDatesForEdit = List.from(_dates);
-                              _calendarVersion++; // Refresh UI to enable selection and center view
+                              _scrollTriggerNotifier.value = todayDate;
                             });
                           },
                           child: Text(periodButtonText),
@@ -287,7 +404,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 children: [
                   // Main Interactive Calendar
                   PeriodCalendar(
-                    calendarVersion: _calendarVersion,
+                    scrollTrigger: _scrollTriggerNotifier,
                     selectedViewDate: _selectedViewDate!,
                     firstDate: firstDate,
                     lastDate: lastDate,
@@ -308,37 +425,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       });
                     },
                     onTodayVisibilityChanged: (isVisible, isAbove, isManualScroll) {
-                      // Only show button if user is manually scrolling
-                      // Always allow hiding the button if today becomes visible
-                      if (isVisible || isManualScroll) {
-                        if (_isTodayVisible != isVisible ||
-                            _isTodayAbove != isAbove) {
-                          setState(() {
-                            _isTodayVisible = isVisible;
-                            _isTodayAbove = isAbove;
-                          });
-                        }
-                      }
+                      // Scroll Spy: Update the notifier instead of triggering a full screen rebuild.
+                      // This ensures smooth tracking as the user scrolls.
+                      _todayVisibilityNotifier.value = TodayVisibilityState(
+                        isVisible: isVisible,
+                        isAbove: isAbove,
+                        isManualScroll: isManualScroll,
+                      );
                     },
                   ),
 
-                  // Floating 'Go to Today' Arrow
-                  if (!_isTodayVisible)
-                    Positioned(
-                      bottom: 10,
-                      right: 10,
-                      child: _isTodayAbove
-                          ? _buildScrollToTodayButton(
-                              isUp: true,
-                              isApple: isApple,
-                              today: todayDate,
-                            )
-                          : _buildScrollToTodayButton(
-                              isUp: false,
-                              isApple: isApple,
-                              today: todayDate,
-                            ),
-                    ),
+                  // Scroll Spy: Use ValueListenableBuilder to rebuild only the floating button.
+                  ValueListenableBuilder<TodayVisibilityState>(
+                    valueListenable: _todayVisibilityNotifier,
+                    builder: (context, state, child) {
+                      // Only show button if 'Today' is not visible.
+                      if (state.isVisible) return const SizedBox.shrink();
+
+                      return Positioned(
+                        bottom: 10,
+                        right: 10,
+                        child: _buildScrollToTodayButton(
+                          isUp: state.isAbove,
+                          isApple: isApple,
+                          today: todayDate,
+                        ),
+                      );
+                    },
+                  ),
                 ],
               ),
 
@@ -350,9 +464,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   selectedViewDate: _selectedViewDate,
                   todayDate: todayDate,
                   cycleData: cycleData,
-                  onConfirmPeriod: (date, isConfirmed) {
+                  onConfirmPeriod: (date, isConfirmed) async {
                     if (isConfirmed) {
                       cycleData.addDate(date);
+                      await _authService.syncFullData(cycleData);
                     }
                   },
                 ),
@@ -447,13 +562,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required bool isApple,
     required DateTime today,
   }) {
-    final VoidCallback onPressed = () {
-      setState(() {
-        _selectedViewDate = today;
-        _isTodayVisible = true;
-        _calendarVersion++;
-      });
-    };
+    // Optimized: Only the trigger changes, no full screen setState().
+    void onPressed() {
+      _selectedViewDate = today;
+      _scrollTriggerNotifier.value = today;
+    }
 
     if (isApple) {
       return CupertinoButton(

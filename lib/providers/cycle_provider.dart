@@ -1,12 +1,24 @@
 // Provider - Separates math and data from the UI
 import 'package:flutter/material.dart';
 import 'package:clock/clock.dart';
+import 'dart:io'; // Added to catch SocketException
+import '../backend/database_service.dart';
 
 class CycleProvider extends ChangeNotifier {
   // Core Application Constants
   static const int defaultCycleLength = 28;
   static const int defaultMensesLength = 5;
   static const int lutealPhaseLength = 14;
+
+  static const List<String> flowIntensityLabels = [
+    "Very Light",
+    "Light",
+    "Moderate",
+    "Heavy",
+    "Super Heavy",
+  ];
+
+  final DatabaseService _dbService = DatabaseService();
 
   // State management for database operations
   bool _isLoading = false;
@@ -30,6 +42,10 @@ class CycleProvider extends ChangeNotifier {
   final Map<DateTime, Set<String>> _symptomsLog = {};
   final Map<DateTime, Set<String>> _activitiesLog = {};
 
+  // Flow and Pain tracking
+  final Map<DateTime, double> _flowLogs = {};
+  final Map<DateTime, int> _painLogs = {};
+
   /// Initializes the provider by loading data from a persistent source.
   /// Call this when the app starts.
   Future<void> initializeData() async {
@@ -37,9 +53,26 @@ class CycleProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // TODO: Replace with repository calls
-      // _selectedDates = await repository.getPeriodDates();
+      final logs = await _dbService.fetchDailyLogs();
+
+      for (var log in logs) {
+        final date = DateTime.parse(log['date']);
+
+        if (log['flow_intensity'] != null) {
+          final intensity = log['flow_intensity'] as String;
+          final index = flowIntensityLabels.indexOf(intensity);
+          if (index != -1) {
+            _flowLogs[date] = index.toDouble();
+          }
+        }
+
+        if (log['pain_level'] != null) {
+          _painLogs[date] = log['pain_level'] as int;
+        }
+      }
       // _symptomsLog = await repository.getSymptoms();
+    } on SocketException catch (e) {
+      debugPrint("Network Error (Check your connection/IP): ${e.message}");
     } catch (e) {
       debugPrint("Error loading data: $e");
     } finally {
@@ -85,6 +118,14 @@ class CycleProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Returns a unique set of all dates that have any form of health data logged.
+  Set<DateTime> get loggedHealthDates => {
+    ..._symptomsLog.keys,
+    ..._activitiesLog.keys,
+    ..._flowLogs.keys,
+    ..._painLogs.keys,
+  };
+
   // Manages symptoms and activities per date logged.
   Set<String> getSymptomsForDate(DateTime date) =>
       _symptomsLog[DateUtils.dateOnly(date)] ?? {};
@@ -100,6 +141,57 @@ class CycleProvider extends ChangeNotifier {
   void updateActivities(DateTime date, Set<String> activities) {
     _activitiesLog[DateUtils.dateOnly(date)] = activities;
     notifyListeners();
+  }
+
+  // Flow and Pain management
+  double getFlowForDate(DateTime date) =>
+      _flowLogs[DateUtils.dateOnly(date)] ?? 2.0;
+  int getPainForDate(DateTime date) => _painLogs[DateUtils.dateOnly(date)] ?? 0;
+
+  void updateFlow(DateTime date, double value) {
+    final normalizedDate = DateUtils.dateOnly(date);
+    _flowLogs[normalizedDate] = value;
+    _lastUpdated = clock.now();
+    notifyListeners();
+
+    // Persist to Database
+    _syncDailyLog(normalizedDate);
+  }
+
+  void updatePain(DateTime date, int value) {
+    final normalizedDate = DateUtils.dateOnly(date);
+    _painLogs[normalizedDate] = value;
+    _lastUpdated = clock.now();
+    notifyListeners();
+
+    // Persist to Database
+    _syncDailyLog(normalizedDate);
+  }
+
+  /// Syncs the current state of flow, pain, and mood for a specific date to the database.
+  Future<void> _syncDailyLog(DateTime date) async {
+    final flowValue = getFlowForDate(date);
+    final painValue = getPainForDate(date);
+
+    // Map flowValue (double 0-4) to String label
+    final flowIntensity =
+        flowIntensityLabels[flowValue.round().clamp(0, flowIntensityLabels.length - 1)];
+
+    // For now, mood defaults to 'Normal' or similar if not explicitly tracked
+    // You can refine this by checking your symptoms/mood logs.
+    String mood = "Normal";
+    final symptoms = getSymptomsForDate(date);
+    if (symptoms.contains('Happy')) mood = 'Happy';
+    if (symptoms.contains('Sad')) mood = 'Sad';
+    if (symptoms.contains('Anxious')) mood = 'Anxious';
+    if (symptoms.contains('Irritated')) mood = 'Irritated';
+
+    await _dbService.logTodayData(
+      flowIntensity: flowIntensity,
+      painLevel: painValue,
+      mood: mood,
+      date: date,
+    );
   }
 
   // Calculation: getter for the firsr recorderd period start.
@@ -130,10 +222,21 @@ class CycleProvider extends ChangeNotifier {
     // Do not show predictions if no dates have been set yet
     if (_selectedDates.isEmpty) return false;
 
-    final anchor = lastPeriodDate;
-    final base = DateTime(anchor.year, anchor.month, anchor.day);
-    final target = DateTime(date.year, date.month, date.day);
-    final difference = target.difference(base).inDays;
+    final target = DateUtils.dateOnly(date);
+
+    // 1. Never show a prediction for a day that is already confirmed as a period.
+    if (_selectedDates.any(
+      (d) => d != null && DateUtils.isSameDay(d, target),
+    )) {
+      return false;
+    }
+
+    final anchor = DateUtils.dateOnly(lastPeriodDate);
+    final difference = target.difference(anchor).inDays;
+
+    // 2. Predictions should only be forward-looking from the most recent confirmed period.
+    // This prevents "ghost" periods from appearing in the past.
+    if (difference < 0) return false;
 
     // Do not show predictions before the user's history begins.
     final firstStart = firstRecordedPeriodStart;
@@ -151,10 +254,19 @@ class CycleProvider extends ChangeNotifier {
     // Do not show predictions if no dates have been set yet
     if (_selectedDates.isEmpty) return false;
 
-    final anchor = lastPeriodDate;
-    final base = DateTime(anchor.year, anchor.month, anchor.day);
-    final target = DateTime(date.year, date.month, date.day);
-    final difference = target.difference(base).inDays;
+    final target = DateUtils.dateOnly(date);
+
+    // Do not show fertile predictions on confirmed period days.
+    if (_selectedDates.any(
+      (d) => d != null && DateUtils.isSameDay(d, target),
+    )) {
+      return false;
+    }
+
+    final anchor = DateUtils.dateOnly(lastPeriodDate);
+    final difference = target.difference(anchor).inDays;
+
+    if (difference < 0) return false;
 
     // Do not show predictions before the user's history begins.
     final firstStart = firstRecordedPeriodStart;
@@ -192,10 +304,13 @@ class CycleProvider extends ChangeNotifier {
     // Do not show predictions if no dates have been set yet
     if (_selectedDates.isEmpty) return false;
 
-    final anchor = lastPeriodDate;
-    final base = DateTime(anchor.year, anchor.month, anchor.day);
-    final target = DateTime(date.year, date.month, date.day);
-    final difference = target.difference(base).inDays;
+    final target = DateUtils.dateOnly(date);
+
+    final anchor = DateUtils.dateOnly(lastPeriodDate);
+    final difference = target.difference(anchor).inDays;
+
+    // Ovulation is only predicted for current/future cycles.
+    if (difference < 0) return false;
 
     // Do not show predictions before the user's history begins.
     final firstStart = firstRecordedPeriodStart;
@@ -223,54 +338,84 @@ class CycleProvider extends ChangeNotifier {
     validDates.sort();
     _selectedDates = validDates;
 
-    // 2. Identify period "blocks" to find start dates and calculate averages.
+    // 2. Identify period "blocks" to find start dates and actual durations.
     if (validDates.isNotEmpty) {
-      List<DateTime> periodStarts = [validDates.first];
+      List<DateTime> periodStarts = [];
       List<int> mensesLengths = [];
 
+      periodStarts.add(validDates.first);
+      int currentBlockLength = 1;
+
       for (int i = 1; i < validDates.length; i++) {
-        // If there is a gap of more than 1 day, it's a new period block.
-        if (validDates[i].difference(validDates[i - 1]).inDays > 1) {
+        // FIX: Increase gap threshold. A new period cycle doesn't start
+        // just because you missed logging for 1 day.
+        // We use 4 days as the standard threshold for separate period episodes.
+        if (validDates[i].difference(validDates[i - 1]).inDays > 4) {
+          mensesLengths.add(currentBlockLength);
           periodStarts.add(validDates[i]);
+          currentBlockLength = 1;
+        } else {
+          currentBlockLength++;
         }
       }
+      mensesLengths.add(currentBlockLength);
 
-      // Calculate average menses length (how many days the period lasts)
-      for (int i = 0; i < periodStarts.length; i++) {
-        int length = validDates
-            .where(
-              (d) =>
-                  d.isAtSameMomentAs(periodStarts[i]) ||
-                  (d.isAfter(periodStarts[i]) &&
-                      (i == periodStarts.length - 1 ||
-                          d.isBefore(periodStarts[i + 1]))),
-            )
-            .length;
-        mensesLengths.add(length);
-      }
-
-      // The latest start date anchors our future predictions.
+      // 1. The latest start date anchors our future predictions.
       _lastPeriodDateOverride = periodStarts.last;
 
-      // 3. Dynamic Learning: Calculate average cycle length.
+      // 2. Update menses length based on the most recent data.
+      // We use clamp(defaultMensesLength, 10) so that if you have only
+      // selected 1 or 2 days, the app still predicts a full period (5 days)
+      // for the future instead of shrinking the prediction.
+      if (mensesLengths.isNotEmpty) {
+        _currentMensesLength = mensesLengths.last.clamp(
+          defaultMensesLength,
+          10,
+        );
+      }
+
+      // 3. Dynamic Learning: Calculate average cycle length (Weighted).
       // We need at least two periods to calculate an interval.
       if (periodStarts.length >= 2) {
         int totalDays = 0;
-        for (int i = 1; i < periodStarts.length; i++) {
-          totalDays += periodStarts[i].difference(periodStarts[i - 1]).inDays;
+
+        // Weighted Average Logic: Most recent cycles are more predictive.
+        // We give the most recent interval a higher weight if available.
+        if (periodStarts.length == 2) {
+          totalDays = periodStarts[1].difference(periodStarts[0]).inDays;
+          _currentCycleLength = totalDays.clamp(21, 45);
+        } else {
+          // Calculate average of the last 3 intervals
+          int count = 0;
+          double weightedSum = 0;
+          double totalWeight = 0;
+
+          for (int i = periodStarts.length - 1; i > 0 && count < 3; i--) {
+            int diff = periodStarts[i].difference(periodStarts[i - 1]).inDays;
+            double weight =
+                1.0 / (periodStarts.length - i); // Higher weight for recent
+            weightedSum += (diff * weight);
+            totalWeight += weight;
+            count++;
+          }
+
+          int average = (weightedSum / totalWeight).round();
+          if (average >= 21 && average <= 45) {
+            _currentCycleLength = average;
+          }
         }
 
-        int average = (totalDays / (periodStarts.length - 1)).round();
+        // Refine average menses length over time.
+        // LOGIC: If the latest period is only 1 day, it's likely "ongoing".
+        // We don't let it drag the average down until the user adds more days.
+        List<int> completedPeriods = mensesLengths.where((l) => l > 1).toList();
+        if (completedPeriods.isEmpty) completedPeriods = [mensesLengths.last];
 
-        // Apply safety bounds (e.g., normal cycles are 21-35 days).
-        if (average >= 21 && average <= 45) {
-          _currentCycleLength = average;
-        }
-
-        // Update average menses length
         double avgMenses =
-            mensesLengths.reduce((a, b) => a + b) / mensesLengths.length;
-        _currentMensesLength = avgMenses.round();
+            completedPeriods.reduce((a, b) => a + b) / completedPeriods.length;
+
+        // Ensure we never predict a 0 or 1 day period if history suggests otherwise.
+        _currentMensesLength = avgMenses.round().clamp(defaultMensesLength, 10);
       }
     }
 

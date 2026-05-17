@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:hugeicons/hugeicons.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
+
+// Project files
 import '../../providers/cycle_provider.dart';
+import '../widgets/health_logger.dart';
 
 /// Mapping of symptom/activity names to HugeIcons
 final Map<String, dynamic> logIconMapping = {
@@ -40,21 +42,52 @@ final Map<String, dynamic> logIconMapping = {
 dynamic _getIcon(String name) =>
     logIconMapping[name] ?? HugeIcons.strokeRoundedQuestion;
 
-class LogIconList extends StatelessWidget {
+class LogTagList extends StatelessWidget {
   final Set<String> items;
-  const LogIconList({super.key, required this.items});
+  const LogTagList({super.key, required this.items});
 
   @override
   Widget build(BuildContext context) {
+    if (items.isEmpty) {
+      return const Text(
+        'None logged',
+        style: TextStyle(fontSize: 12, color: Colors.grey),
+      );
+    }
+
     return Wrap(
-      spacing: 4,
-      children: items
-          .map((e) => HugeIcon(icon: _getIcon(e), color: Colors.pink, size: 20))
-          .toList(),
+      spacing: 6,
+      runSpacing: 6,
+      children: items.map((item) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.pink.shade50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.pink.shade100),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              HugeIcon(icon: _getIcon(item), color: Colors.pink, size: 14),
+              const SizedBox(width: 4),
+              Text(
+                item,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Colors.pink,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 }
 
+// Main Constructor
 class HealthLog extends StatefulWidget {
   final DateTime selectedViewDate;
   final DateTime todayDate;
@@ -69,63 +102,12 @@ class HealthLog extends StatefulWidget {
   State<HealthLog> createState() => _HealthLogState();
 }
 
+// Main Class
 class _HealthLogState extends State<HealthLog> {
   void _showSymptomsDialog(BuildContext context, String type, DateTime date) {
     showDialog(
       context: context,
       builder: (context) => SymptomsDialog(type: type, date: date),
-    );
-  }
-
-  Widget _buildLogCard(
-    BuildContext context, {
-    required String label,
-    required Set<String> selectedItems,
-    required bool isApple,
-    required VoidCallback onPressed,
-  }) {
-    final bool hasSelection = selectedItems.isNotEmpty;
-
-    return Card(
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Row(
-            children: [
-              Expanded(
-                child: hasSelection
-                    ? LogIconList(items: selectedItems)
-                    : Text(
-                        label,
-                        style: const TextStyle(color: Colors.pinkAccent),
-                      ),
-              ),
-              const SizedBox(width: 8),
-              if (isApple)
-                CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  minSize: 0,
-                  onPressed: onPressed,
-                  child: const Icon(
-                    CupertinoIcons.add_circled_solid,
-                    color: Colors.pink,
-                  ),
-                )
-              else
-                Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: const BoxDecoration(
-                    color: Colors.pink,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.add, size: 16, color: Colors.white),
-                ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 
@@ -169,73 +151,112 @@ class _HealthLogState extends State<HealthLog> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Health Log',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                const Text(
+                  'Daily Monitoring',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+
+                // GestureDetector(
+                //   onTap: () => print("oh I tapped it!"),
+                //   child: Text('Edit'),
+                // ),
+              ],
             ),
+
             const SizedBox(height: 16),
 
+            // Mood & Health Log Row
+            Row(
+              children: [
+                // Mood Log
+                Expanded(
+                  child: ListTile(
+                    leading: const Icon(Icons.mood, color: Colors.orange),
+                    title: const Text('Mood'),
+                    subtitle: const Text('Happy'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {},
+                  ),
+                ), // Prevents the space to bleed.
+                // Health Log
+                ElevatedButton(
+                  onPressed: () => showDialog(
+                    context: context,
+                    builder: (context) =>
+                        VitalsDialog(date: widget.selectedViewDate),
+                  ),
+                  child: const Text('Log Your Health'),
+                ),
+              ],
+            ),
+
             if (showSymptoms) ...[
-              const SizedBox(height: 10),
-              // Add Symptoms & Activities
-              const Text(
-                'Symptoms',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              // Symptoms Section
+              ListTile(
+                leading: const Icon(Icons.monitor_weight, color: Colors.blue),
+                title: const Text(
+                  'Symptoms',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: LogTagList(
+                    items: cycleData.getSymptomsForDate(viewDate),
+                  ),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _showSymptomsDialog(context, 'Symptoms', viewDate),
               ),
-
-              const SizedBox(height: 8),
-
-              _buildLogCard(
-                context,
-                label: 'Add Symptoms',
-                selectedItems: cycleData.getSymptomsForDate(viewDate),
-                isApple: isApple,
-                onPressed: () =>
-                    _showSymptomsDialog(context, 'Symptoms', viewDate),
-              ),
-
-              const SizedBox(height: 8),
-
-              const Text(
-                'Activities',
-                textAlign: TextAlign.start,
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-              ),
-
-              _buildLogCard(
-                context,
-                label: 'Add Activities',
-                selectedItems: cycleData.getActivitiesForDate(viewDate),
-                isApple: isApple,
-                onPressed: () =>
+              // Activities Section
+              ListTile(
+                leading: const Icon(Icons.directions_run, color: Colors.green),
+                title: const Text(
+                  'Activities',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: LogTagList(
+                    items: cycleData.getActivitiesForDate(viewDate),
+                  ),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () =>
                     _showSymptomsDialog(context, 'Activities', viewDate),
               ),
             ],
-            ListTile(
-              leading: const Icon(Icons.water_drop, color: Colors.red),
-              title: const Text('Flow Intensity'),
-              subtitle: const Text('Medium'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {},
-            ),
-            ListTile(
-              leading: const Icon(Icons.mood, color: Colors.orange),
-              title: const Text('Mood'),
-              subtitle: const Text('Happy'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {},
-            ),
-            ListTile(
-              leading: const Icon(Icons.monitor_weight, color: Colors.blue),
-              title: const Text('Symptoms'),
-              subtitle: const Text('Cramps, Headache'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {},
-            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class VitalsDialog extends StatelessWidget {
+  final DateTime date;
+  const VitalsDialog({super.key, required this.date});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Log Your Health'),
+      content: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            HealthLogger(date: date), // Integrated HealthLogger here
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
     );
   }
 }
@@ -341,7 +362,7 @@ class _SymptomsDialogState extends State<SymptomsDialog> {
               'Unprotected sex',
               'Oral sex',
               'Anal sex',
-              'Maturation',
+              'Masturbation',
               'Sensual touch',
               'Sex toys',
               'Orgasm',

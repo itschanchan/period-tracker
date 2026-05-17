@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:hugeicons/hugeicons.dart';
-import 'package:intl/intl.dart';
 import 'package:flutter/cupertino.dart';
-import '../../providers/cycle_provider.dart';
-import 'health_log.dart';
+import 'package:intl/intl.dart';
 
-class PeriodDescription extends StatelessWidget {
+// Project files
+import '../../providers/cycle_provider.dart';
+
+class PeriodDescription extends StatefulWidget {
   final DateTime? _selectedViewDate;
   final DateTime todayDate;
   final CycleProvider cycleData;
@@ -20,14 +20,147 @@ class PeriodDescription extends StatelessWidget {
   }) : _selectedViewDate = selectedViewDate;
 
   @override
+  State<PeriodDescription> createState() => _PeriodDescriptionState();
+}
+
+class _PeriodDescriptionState extends State<PeriodDescription> {
+  /// Shows a platform-specific number picker for pain levels 0-10.
+  void _showPainPicker(
+    BuildContext context,
+    CycleProvider cycleData,
+    DateTime viewDate,
+    bool isApple,
+  ) {
+    final int currentPain = cycleData.getPainForDate(viewDate);
+
+    if (isApple) {
+      showCupertinoModalPopup(
+        context: context,
+        builder: (context) => Container(
+          height: 250,
+          color: CupertinoColors.systemBackground.resolveFrom(context),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 180,
+                  child: CupertinoPicker(
+                    itemExtent: 32,
+                    scrollController: FixedExtentScrollController(
+                      initialItem: currentPain,
+                    ),
+                    onSelectedItemChanged: (int value) {
+                      cycleData.updatePain(viewDate, value);
+                    },
+                    children: List.generate(
+                      11,
+                      (i) => Center(child: Text(i.toString())),
+                    ),
+                  ),
+                ),
+                CupertinoButton(
+                  child: const Text('Done'),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } else {
+      showModalBottomSheet(
+        context: context,
+        builder: (context) => SizedBox(
+          height: 250,
+          child: Column(
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 10),
+                child: Text(
+                  'Select Pain Level',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              Expanded(
+                child: ListWheelScrollView.useDelegate(
+                  itemExtent: 40,
+                  physics: const FixedExtentScrollPhysics(),
+                  controller: FixedExtentScrollController(
+                    initialItem: currentPain,
+                  ),
+                  onSelectedItemChanged: (index) =>
+                      cycleData.updatePain(viewDate, index),
+                  childDelegate: ListWheelChildBuilderDelegate(
+                    childCount: 11,
+                    builder: (context, index) => Center(
+                      child: Text(
+                        '$index',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          color: Colors.pink,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (_selectedViewDate == null) {
+    if (widget._selectedViewDate == null) {
       return const SizedBox.shrink();
     }
 
-    final viewDate = _selectedViewDate;
+    final viewDate = widget._selectedViewDate!;
+    final cycleData = widget.cycleData;
+    final todayDate = widget.todayDate;
     int cycleNumber = 1; // Default to Cycle 1
     int dayInCycle = cycleData.getDayInCycle(viewDate);
+
+    final bool isApple = Theme.of(context).platform == TargetPlatform.iOS;
+
+    // Check if the viewed date is actually marked as a period day in history
+    final bool isConfirmedToday = cycleData.selectedDates.any(
+      (d) => DateUtils.isSameDay(d, viewDate),
+    );
+
+    final DateTime? firstStart = widget.cycleData.firstRecordedPeriodStart;
+
+    // Determine if the 'Confirm' button should be shown for future dates (Ongoing Period logic)
+    bool isFutureConfirmable = false;
+    if (viewDate.isAfter(todayDate) && cycleData.selectedDates.isNotEmpty) {
+      final latestConfirmed = cycleData.selectedDates.last; // History is sorted
+      if (latestConfirmed != null) {
+        final bool isOngoing =
+            latestConfirmed.isAfter(todayDate) ||
+            DateUtils.isSameDay(latestConfirmed, todayDate);
+
+        if (isOngoing) {
+          final int diff = viewDate.difference(latestConfirmed).inDays;
+          isFutureConfirmable = diff > 0 && diff <= 4;
+        }
+      }
+    }
+
+    final bool isConfirmable =
+        (firstStart != null &&
+            (viewDate.isAfter(firstStart) ||
+                DateUtils.isSameDay(viewDate, firstStart)) &&
+            (viewDate.isBefore(todayDate) ||
+                DateUtils.isSameDay(viewDate, todayDate))) ||
+        isFutureConfirmable;
 
     // Generate dynamic status reports for the selected day
     String? statusReport;
@@ -35,11 +168,6 @@ class PeriodDescription extends StatelessWidget {
       final menses = cycleData.mensesLength;
       final cycle = cycleData.cycleLength;
       final ov = cycleData.ovulationDayNumber;
-
-      // Check if the viewed date is actually marked as a period day in history
-      final bool isConfirmedToday = cycleData.selectedDates.any(
-        (d) => DateUtils.isSameDay(d, viewDate),
-      );
 
       // 1. Period status (Start/End)
       final String pReport = isConfirmedToday
@@ -83,7 +211,6 @@ class PeriodDescription extends StatelessWidget {
               '\nTesting 1–2 weeks after a missed period provides the most reliable results.';
         }
       }
-
       statusReport = '$pReport • $oReport$fReport$mReport';
     }
 
@@ -151,14 +278,95 @@ class PeriodDescription extends StatelessWidget {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
+
+                    if (isConfirmedToday) ...[
+                      const Divider(height: 24),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.water_drop,
+                            color: Colors.red,
+                            size: 20,
+                          ),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 12),
+                                  child: Text(
+                                    'Flow: ${CycleProvider.flowIntensityLabels[cycleData.getFlowForDate(viewDate).round().clamp(0, CycleProvider.flowIntensityLabels.length - 1)]}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                                Slider(
+                                  value: cycleData.getFlowForDate(viewDate),
+                                  min: 0,
+                                  max: 4,
+                                  divisions: 4,
+                                  activeColor: Colors.redAccent,
+                                  onChanged: (val) {
+                                    setState(() {
+                                      cycleData.updateFlow(viewDate, val);
+                                    });
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(width: 8),
+
+                          // Pain Tolerance Button
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text(
+                                'Pain Level',
+                                style: TextStyle(fontSize: 10),
+                              ),
+                              const SizedBox(height: 4),
+                              GestureDetector(
+                                onTap: () => _showPainPicker(
+                                  context,
+                                  cycleData,
+                                  viewDate,
+                                  isApple,
+                                ),
+                                child: Container(
+                                  width: 32,
+                                  height: 32,
+                                  decoration: const BoxDecoration(
+                                    color: Colors.pink,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      '${cycleData.getPainForDate(viewDate)}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
-                // Only show the button if the viewed date falls on a predicted period day
-                // Show the button only if the date is a predicted period day
-                // AND the date is today or in the past.
-                if (cycleData.isPredictedPeriodDay(viewDate) &&
-                    (viewDate.isBefore(todayDate) ||
-                        DateUtils.isSameDay(viewDate, todayDate)))
+                // The 'Confirm' button is now available for any day from the first
+                // recorded period start up to today, provided it's not already logged.
+                // This allows for easy confirmation of both predicted and unpredicted
+                // period days.
+                if (isConfirmable && !isConfirmedToday)
                   Positioned(
                     top: -10,
                     right: -10,
@@ -180,119 +388,30 @@ class PeriodDescription extends StatelessWidget {
                               const ConfirmPeriodDialog(type: 'Period'),
                         );
 
-                        if (isPeriod == true && onConfirmPeriod != null) {
+                        if (isPeriod == true &&
+                            widget.onConfirmPeriod != null) {
                           // When user confirms 'Yes', trigger callback to convert the
                           // predicted day into an actual period cycle day.
                           // This updates the data model and UI accordingly.
-                          onConfirmPeriod!(viewDate, true);
+                          widget.onConfirmPeriod!(viewDate, true);
                         }
                       },
-                      child: const Text(
-                        'Confirm',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+
+                      child: Icon(Icons.water_drop_outlined),
+                      // child: const Text(
+                      //   'Confirm',
+                      //   style: TextStyle(
+                      //     fontSize: 11,
+                      //     fontWeight: FontWeight.bold,
+                      //   ),
+                      // ),
                     ),
                   ),
               ],
             ),
           ),
-
-          const SizedBox(height: 20),
-
-          // VITALS SECTION
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildVitalItem(
-                  icon: Icons.medication_outlined,
-                  label: 'Meds',
-                  value: 'Add',
-                  onTap: () =>
-                      _showSymptomsDialog(context, 'Medications', viewDate),
-                ),
-                _buildVitalItem(
-                  icon: Icons.water_drop_outlined,
-                  label: 'Water',
-                  value: '0 ml',
-                  onTap: () => _showSymptomsDialog(context, 'Water', viewDate),
-                ),
-                _buildVitalItem(
-                  icon: Icons.monitor_weight_outlined,
-                  label: 'Weight',
-                  value: '-- kg',
-                  onTap: () => _showSymptomsDialog(context, 'Weight', viewDate),
-                ),
-                _buildVitalItem(
-                  icon: Icons.thermostat_outlined,
-                  label: 'Temp',
-                  value: '36.6°C',
-                  onTap: () =>
-                      _showSymptomsDialog(context, 'Temperature', viewDate),
-                ),
-                _buildVitalItem(
-                  icon: Icons.edit_note_outlined,
-                  label: 'Notes',
-                  value: 'Add',
-                  onTap: () => _showSymptomsDialog(context, 'Notes', viewDate),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
-    );
-  }
-
-  Widget _buildVitalItem({
-    required dynamic icon,
-    required String label,
-    required String value,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 80,
-        margin: const EdgeInsets.symmetric(horizontal: 6),
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.pink.shade100),
-          color: Colors.pink.shade50,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            icon is IconData
-                ? Icon(icon, color: Colors.pink, size: 22)
-                : HugeIcon(icon: icon, color: Colors.pink, size: 22),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 10, color: Colors.black54),
-              textAlign: TextAlign.center,
-            ),
-            Text(
-              value,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showSymptomsDialog(BuildContext context, String type, DateTime date) {
-    showDialog(
-      context: context,
-      builder: (context) => SymptomsDialog(type: type, date: date),
     );
   }
 }

@@ -3,13 +3,16 @@ import 'package:flutter/rendering.dart';
 import 'dart:math' as math;
 import 'package:calendar_date_picker2/calendar_date_picker2.dart';
 import 'package:provider/provider.dart';
-import '/providers/cycle_provider.dart';
+import 'package:intl/intl.dart';
 import 'package:visibility_detector/visibility_detector.dart';
+
+// Project files
+import 'package:period_tracker/providers/cycle_provider.dart';
 
 class PeriodCalendar extends StatefulWidget {
   const PeriodCalendar({
     super.key,
-    required this.calendarVersion,
+    required this.scrollTrigger,
     required this.selectedViewDate,
     required this.firstDate,
     required this.lastDate,
@@ -22,7 +25,7 @@ class PeriodCalendar extends StatefulWidget {
     required this.onTodayVisibilityChanged, // Updated to pass visibility and position
   });
 
-  final int calendarVersion;
+  final ValueNotifier<DateTime?> scrollTrigger;
   final DateTime selectedViewDate;
   final DateTime firstDate;
   final DateTime lastDate;
@@ -43,6 +46,23 @@ class _PeriodCalendarState extends State<PeriodCalendar> {
   // Tracks the direction of the last user-initiated scroll
   bool _isTodayAbove = false;
   bool _isManualScrollActive = false;
+  int _internalVersion = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.scrollTrigger.addListener(_handleScrollRequest);
+  }
+
+  @override
+  void dispose() {
+    widget.scrollTrigger.removeListener(_handleScrollRequest);
+    super.dispose();
+  }
+
+  void _handleScrollRequest() {
+    if (mounted) setState(() => _internalVersion++);
+  }
 
   // Helper to check if two dates are the same day (ignoring time)
   bool _isSameDay(DateTime? a, DateTime? b) {
@@ -65,17 +85,12 @@ class _PeriodCalendarState extends State<PeriodCalendar> {
       ),
     ];
 
-    // REBUILD LOGIC: The key now includes a signature of all selected dates AND
-    // the provider's update timestamp. This forces the calendar to discard its
-    // month cache and recalculate all decorations (Fertile, Ovulation, Predictions)
-    // the moment a period is confirmed and history is updated.
-    final String datesSignature = widget.value
-        .map((d) => d?.millisecondsSinceEpoch ?? 0)
-        .join('-');
-
-    final Key calendarKey = ValueKey(
-      'calendar_${widget.calendarVersion}_${datesSignature}_${widget.isEditingPeriodDates}_${cycleData.lastUpdated.millisecondsSinceEpoch}',
-    );
+    // We use a stable key based on the calendarVersion to prevent the scroll
+    // position from resetting whenever dates are selected. Using a dynamic key
+    // that changes on every selection forces the entire calendar to dispose
+    // and recreate, leading to a "clanky" and jumpy user experience.
+    // Decorations will still refresh as the widget updates.
+    final Key calendarKey = ValueKey('calendar_$_internalVersion');
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -119,7 +134,7 @@ class _PeriodCalendarState extends State<PeriodCalendar> {
         const Divider(height: 1), // Reduced height from default 16 to 1
 
         SizedBox(
-          height: 350, // Adjust calendar height
+          height: 400, // Adjust calendar height
           child: NotificationListener<UserScrollNotification>(
             onNotification: (notification) {
               _isManualScrollActive = true;
@@ -159,14 +174,18 @@ class _PeriodCalendarState extends State<PeriodCalendar> {
                 // Hides the built-in Scroll Day Header
                 hideScrollViewTopHeader: true,
 
-                // Adjust this value to reduce the gap between Month/Year and days
-                controlsHeight: 30,
+                // calendar_date_picker2 does not support month headers in scroll mode.
+                // We reduce this height since we are using a custom static header instead.
+                controlsHeight: 10,
+
                 dayMaxWidth: 45,
                 // headerTextStyle: const TextStyle(fontWeight: FontWeight.bold),
 
-                // Hides the built-in day labels
+                // Since you use a custom header above the widget, setting fontSize to 0
+                // collapses the space taken by the hidden internal labels.
                 weekdayLabelTextStyle: const TextStyle(
                   color: Colors.transparent,
+                  fontSize: 0,
                 ),
                 // Custom Day Builder | dayBuilder property.
                 dayBuilder:
@@ -320,9 +339,12 @@ class _PeriodCalendarState extends State<PeriodCalendar> {
                         ],
                       );
                     },
-                // Disable selection for all days unless we are in editing mode
-                // It handles 'read-only' logic.
-                selectableDayPredicate: (day) => true,
+                // Restriction logic: Only allow selection up to today,
+                // or 4 days after the latest confirmed period day (Ongoing period). (Modified: All future dates are now clickable)
+                selectableDayPredicate: (day) {
+                  // Allow all dates within the calendar's firstDate and lastDate to be clickable.
+                  return true;
+                },
               ),
               // Use our modified list to control the initial scroll position
               value: displayValues,
@@ -330,13 +352,11 @@ class _PeriodCalendarState extends State<PeriodCalendar> {
                 // Identify which date was just tapped by comparing the new UI state
                 // with the previous UI state (displayValues).
                 DateTime? tappedDate;
-                bool isAdded = false;
 
                 // Check if a date was added (selected)
                 for (final d in dates) {
                   if (!displayValues.any((p) => _isSameDay(d, p))) {
                     tappedDate = d;
-                    isAdded = true;
                     break;
                   }
                 }
@@ -345,7 +365,6 @@ class _PeriodCalendarState extends State<PeriodCalendar> {
                 for (final p in displayValues) {
                   if (p != null && !dates.any((d) => _isSameDay(d, p))) {
                     tappedDate = p;
-                    isAdded = false;
                     break;
                   }
                 }
@@ -355,7 +374,13 @@ class _PeriodCalendarState extends State<PeriodCalendar> {
 
                   if (widget.isEditingPeriodDates) {
                     List<DateTime?> newSelection = List.from(widget.value);
-                    if (isAdded) {
+
+                    // Determine toggle action based on the actual data source of truth
+                    final bool isActuallySelected = newSelection.any(
+                      (d) => _isSameDay(d, tappedDate),
+                    );
+
+                    if (!isActuallySelected) {
                       // SEPARATED LOGIC:
                       // 1. Initial Setup: If no periods exist, auto-fill a range for convenience.
                       // 2. Confirmation/Append: If data exists, treat every tap as an
@@ -474,7 +499,7 @@ class _DashedCirclePainter extends CustomPainter {
     required this.color,
     this.strokeWidth = 2,
     this.dashLength = 4,
-    this.dashSpace = 3,
+    this.dashSpace = 2,
   });
 
   @override

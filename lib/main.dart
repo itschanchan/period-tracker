@@ -2,17 +2,53 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-// APP ROUTE
-import 'app_routes.dart';
-import '/providers/cycle_provider.dart';
+// Supabase
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-// import 'dart:io'; // Required for Platform.isIOS (this is solely for mobile platforms, not compatible with the web)
+// Firebase
+import 'package:firebase_core/firebase_core.dart';
+import 'backend/firebase_options.dart';
+
+// APP ROUTE
+import 'package:period_tracker/app_routes.dart';
+import 'package:period_tracker/providers/cycle_provider.dart';
+import 'package:period_tracker/backend/notification_service.dart';
 
 // Global debug date (change this and hot reload)
-final ValueNotifier<DateTime> mockToday = ValueNotifier(DateTime(2026, 4, 27));
+final ValueNotifier<DateTime> mockToday = ValueNotifier(DateTime.now());
+
+// Global navigator key for debugging context-related issues
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 // 1. The Ignition Point
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize services in parallel to speed up startup
+  try {
+    await Future.wait([
+      Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      ).catchError((e) {
+        debugPrint('Firebase initialization failed: $e');
+        return null;
+      }),
+      Supabase.initialize(
+        url: 'https://imksmtwlwrechduzdszp.supabase.co',
+        anonKey: 'sb_publishable_pMDkbawnZS0vClTp4HfHNg_DF26vML2',
+        authOptions: const FlutterAuthClientOptions(
+          authFlowType: AuthFlowType.implicit,
+        ),
+      ).catchError((e) {
+        debugPrint('Supabase initialization failed: $e');
+      }),
+    ]).timeout(
+      const Duration(seconds: 10),
+    ); // Prevent total hang if services are down
+  } catch (e) {
+    debugPrint('Startup services timed out or failed: $e');
+  }
+
   // 2.The Attachment
   // runApp() is only in main.dart
   runApp(const PeriodTrackingApp());
@@ -34,58 +70,36 @@ class PeriodTrackingApp extends StatelessWidget {
 
     return ChangeNotifierProvider(
       create: (context) => CycleProvider(),
-      child: MaterialApp(
-        title: 'Period Tracker',
-        debugShowCheckedModeBanner:
-            false, // removes the "DEBUG" tag on the top right corner of the screen.
-        // 1. Set the starting screen
-        initialRoute: AppRoutes.dashboard,
-        // 2. Load the map from app_routes.dart file
-        routes: AppRoutes.define(mockToday),
-        // 3. Set the global theme
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.pinkAccent),
-        ),
+      child: Builder(
+        builder: (context) {
+          // Initialize notification service after providers are set up
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final cycleProvider = Provider.of<CycleProvider>(
+              context,
+              listen: false,
+            );
+            NotificationService().initialize(context, cycleProvider);
+          });
+
+          return MaterialApp(
+            title: 'Period Tracker',
+            navigatorKey: navigatorKey,
+            debugShowCheckedModeBanner:
+                false, // removes the "DEBUG" tag on the top right corner of the screen.
+            // 1. Set the starting screen
+            initialRoute: AppRoutes.dashboard,
+            // 2. Load the map from app_routes.dart file
+            routes: AppRoutes.define(mockToday),
+            // 3. Set the global theme
+            theme: ThemeData(
+              colorScheme: ColorScheme.fromSeed(seedColor: Colors.pinkAccent),
+            ),
+          );
+        },
       ),
     );
   }
 }
-
-/* 
-  main.dart's default screen 
-  DO NOT USE THIS! Since it already has multiple files connected.
-*/
-// class MyHomePage extends StatefulWidget {
-//   const MyHomePage({super.key, required this.title});
-
-//   // This widget is the home page of your application. It is stateful, meaning
-//   // that it has a State object (defined below) that contains fields that affect
-//   // how it looks.
-
-//   // This class is the configuration for the state. It holds the values (in this
-//   // case the title) provided by the parent (in this case the App widget) and
-//   // used by the build method of the State. Fields in a Widget subclass are
-//   // always marked "final".
-
-//   final String title;
-
-//   @override
-//   State<MyHomePage> createState() => _MyHomePageState();
-// }
-
-// class _MyHomePageState extends State<MyHomePage> {
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       // Horizontal bar at the top of the screen.
-//       appBar: AppBar(
-//         title: Text(widget.title),
-//         backgroundColor: Theme.of(context).colorScheme.inversePrimary /* safe for multi-platform checking */,
-//       ),
-
-//     );
-//   }
-// }
 
 /*  
   NOTES:
