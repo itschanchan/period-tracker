@@ -473,9 +473,7 @@ class _DashedCirclePainter extends CustomPainter {
   _DashedCirclePainter({
     required this.color,
     this.strokeWidth = 2,
-    this.dashLength = 4,
-    this.dashSpace = 3,
-  });
+  }) : dashLength = 4 : dashSpace = 3;
 
   @override
   void paint(Canvas canvas, Size size) {
