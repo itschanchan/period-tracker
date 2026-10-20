@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-import '/login_screen.dart';
-import '/register_screen.dart';
-import '/dashboard/dashboard_screen.dart';
+import 'package:period_tracker/login_screen.dart';
+import 'package:period_tracker/register_screen.dart';
+import 'package:period_tracker/features/dashboard/views/dashboard_view.dart';
+import 'package:period_tracker/features/calendar/views/calendar_view.dart';
+import 'package:period_tracker/features/dashboard/viewmodels/dashboard_viewmodel.dart';
 
 class AppRoutes {
   AppRoutes._(); // Private constructor
 
-  static const String root = '/'; // standalone backlash indicates landing page.
+  static const String root = '/';
   static const String login = '/login';
   static const String dashboard = '/dashboard';
   static const String register = '/register';
+  static const String calendar = '/calendar';
 
-  // Pass the simulatedToday in the parameters
   static Map<String, WidgetBuilder> define(
     ValueNotifier<DateTime> mockTodayNotifier,
   ) {
@@ -23,7 +26,14 @@ class AppRoutes {
       dashboard: (context) => ValueListenableBuilder<DateTime>(
         valueListenable: mockTodayNotifier,
         builder: (context, date, _) {
-          return DashboardScreen(title: 'Dashboard', simulatedToday: date);
+          return DashboardView(simulatedToday: date);
+        },
+      ),
+      calendar: (context) => ValueListenableBuilder<DateTime>(
+        valueListenable: mockTodayNotifier,
+        builder: (context, date, _) {
+          final dashboardViewModel = Provider.of<DashboardViewModel>(context, listen: false);
+          return CalendarView(dashboardViewModel: dashboardViewModel);
         },
       ),
     };
