@@ -2,18 +2,18 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-// Supabase
-import 'package:supabase_flutter/supabase_flutter.dart';
-
 // Firebase
 import 'package:firebase_core/firebase_core.dart';
-import 'backend/firebase_options.dart';
 
-// APP ROUTE
+// CORE
+import 'package:period_tracker/core/core.dart';
 import 'package:period_tracker/core/routes/app_routes.dart';
+import 'package:period_tracker/backend/firebase_options.dart';
+
+// FEATURES
+import 'package:period_tracker/features/features.dart';
 
 // VIEW MODELS
-import 'package:period_tracker/backend/viewModels/cycle_view_model.dart';
 import 'package:period_tracker/backend/viewModels/health_logs_view_model.dart';
 import 'package:period_tracker/backend/viewModels/daily_monitor_view_model.dart';
 
@@ -28,36 +28,43 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 // 1. The Ignition Point
 void main() async {
+  // 2.The Attachment
+  // runApp() is only in main.dart
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize services in parallel to speed up startup
+  // Initialize core utilities (local persistence)
+  await PrefsUtils.init();
+
+  // Initialize the remote services in parallel to speed up startup.
+  // Failures are non fatal: the app still runs on local data.
   try {
     await Future.wait([
-      Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      ).catchError((e) {
-        debugPrint('Firebase initialization failed: $e');
-        return null;
-      }),
-      Supabase.initialize(
-        url: 'https://imksmtwlwrechduzdszp.supabase.co',
-        anonKey: 'sb_publishable_pMDkbawnZS0vClTp4HfHNg_DF26vML2',
-        authOptions: const FlutterAuthClientOptions(
-          authFlowType: AuthFlowType.implicit,
-        ),
-      ).catchError((e) {
-        debugPrint('Supabase initialization failed: $e');
-      }),
-    ]).timeout(
-      const Duration(seconds: 10),
-    ); // Prevent total hang if services are down
+      _initFirebase(),
+      _initSupabase(),
+    ]).timeout(const Duration(seconds: 10));
   } catch (e) {
     debugPrint('Startup services timed out or failed: $e');
   }
 
-  // 2.The Attachment
-  // runApp() is only in main.dart
   runApp(const PeriodTrackingApp());
+}
+
+Future<void> _initFirebase() async {
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('Firebase initialization failed: $e');
+  }
+}
+
+Future<void> _initSupabase() async {
+  try {
+    await SupabaseConfig.initialize();
+  } catch (e) {
+    debugPrint('Supabase initialization failed: $e');
+  }
 }
 
 // 3. MaterialApp: The Foundation
@@ -70,13 +77,11 @@ class PeriodTrackingApp extends StatelessWidget {
   // Returns the a Widget Tree
   @override
   Widget build(BuildContext context) {
-    // 1. Define your mock date here.
-    // Simply change this date and save (Hot Reload) to move "Today" in the app.
-    // final DateTime mockToday = DateTime.now();
-
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (context) => CycleViewModel()),
+        ChangeNotifierProvider(
+          create: (context) => DashboardViewModel()..initialize(),
+        ),
         ChangeNotifierProvider(
           create: (context) {
             final vm = HealthLogsViewModel();
@@ -84,49 +89,40 @@ class PeriodTrackingApp extends StatelessWidget {
             return vm;
           },
         ),
-        ChangeNotifierProvider(create: (context) => DailyMonitorViewModel()),
+        ChangeNotifierProvider(
+          create: (context) {
+            final vm = DailyMonitorViewModel();
+            vm.initializeData();
+            return vm;
+          },
+        ),
       ],
       child: Builder(
         builder: (context) {
-          // Initialize notification service after providers are set up
+          // Initialize the notification service once the providers are ready.
           WidgetsBinding.instance.addPostFrameCallback((_) {
             try {
-              final cycleViewModel = Provider.of<CycleViewModel>(
+              final dashboardViewModel = Provider.of<DashboardViewModel>(
                 context,
                 listen: false,
               );
-              NotificationService().initialize(context, cycleViewModel);
+              NotificationService().initialize(context, dashboardViewModel);
             } catch (e) {
               debugPrint('Notification service initialization failed: $e');
             }
           });
 
           return MaterialApp(
-            title: 'Period Tracker',
+            title: AppConstants.appName,
             navigatorKey: navigatorKey,
-            debugShowCheckedModeBanner:
-                false, // removes the "DEBUG" tag on the top right corner of the screen.
-            // 1. Set the starting screen
+            debugShowCheckedModeBanner: false,
             initialRoute: AppRoutes.dashboard,
-            // 2. Load the map from app_routes.dart file
             routes: AppRoutes.define(mockToday),
-            // 3. Set the global theme
-            theme: ThemeData(
-              colorScheme: ColorScheme.fromSeed(seedColor: Colors.pinkAccent),
-            ),
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
           );
         },
       ),
     );
   }
 }
-
-/*  
-  NOTES:
-  - Dart requires the class name for static methods and enums, unlike languages like Swift.
-  - Why use Theme.of(context).platform?
-  - Using the Theme approach is often better for UI logic because it allows you to test your 
-    "Apple" layout on other platforms by simply overriding the ThemeData.platform in your MaterialApp. 
-    If you strictly want to know the physical hardware platform, you can also use defaultTargetPlatform 
-    after importing package:flutter/foundation.dart.
-*/

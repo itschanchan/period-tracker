@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:hugeicons/hugeicons.dart'; // Import for HugeIcon
-import 'package:period_tracker/frontend/dashboard/widgets/daily_monitor.dart'; // Import for SymptomsDialog
 
 class HealthLogger extends StatefulWidget {
   final DateTime date; // Add date parameter
@@ -178,52 +176,6 @@ class _HealthLoggerState extends State<HealthLogger> {
         if (overlayButtons != null)
           Positioned(top: 0, right: 0, child: Row(children: overlayButtons)),
       ],
-    );
-  }
-
-  Widget _buildVitalItem({
-    required BuildContext context,
-    required dynamic icon,
-    required String label,
-    required String value,
-    required String type,
-    required DateTime date, // Add date parameter
-  }) {
-    return GestureDetector(
-      onTap: () => showDialog(
-        context: context,
-        builder: (context) =>
-            SymptomsDialog(type: type, date: date), // Use the passed date
-      ),
-      child: Container(
-        width: 80,
-        margin: const EdgeInsets.symmetric(horizontal: 6),
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.pink.shade100),
-          color: Colors.pink.shade50,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            icon is IconData
-                ? Icon(icon, color: Colors.pink, size: 22)
-                : HugeIcon(icon: icon, color: Colors.pink, size: 22),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 10, color: Colors.black54),
-              textAlign: TextAlign.center,
-            ),
-            Text(
-              value,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
