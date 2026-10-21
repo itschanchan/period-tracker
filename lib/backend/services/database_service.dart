@@ -3,7 +3,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/daily_log.dart';
 
 class DatabaseService {
-  final _supabase = Supabase.instance.client;
+  /// Resolved lazily so the service can be constructed before (or without)
+  /// Supabase being initialised.
+  SupabaseClient get _supabase => Supabase.instance.client;
 
   /// Fetches daily logs for the currently authenticated user.
   Future<List<DailyLogModel>> fetchDailyLogs() async {

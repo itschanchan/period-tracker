@@ -3,13 +3,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // viewModels imports
-import '../viewModels/cycle_view_model.dart';
+import 'package:period_tracker/features/dashboard/viewmodels/dashboard_viewmodel.dart';
 import '../viewModels/health_logs_view_model.dart';
 import '../viewModels/daily_monitor_view_model.dart';
 
 // the AuthService class
 class AuthService {
-  final _supabase = Supabase.instance.client;
+  /// Resolved lazily so the service can be constructed before (or without)
+  /// Supabase being initialised.
+  SupabaseClient get _supabase => Supabase.instance.client;
 
   // Inside your AuthService class
   Future<void> signInWithGoogle() async {
@@ -43,14 +45,27 @@ class AuthService {
     await _supabase.auth.signOut();
   }
 
-  User? get currentUser => _supabase.auth.currentUser;
+  User? get currentUser {
+    try {
+      return _supabase.auth.currentUser;
+    } catch (_) {
+      // Supabase is not initialised (e.g. missing build-time credentials).
+      return null;
+    }
+  }
 
   /// Exposes the Supabase auth state stream to allow UI components to react to login/logout events.
-  Stream<AuthState> get onAuthStateChange => _supabase.auth.onAuthStateChange;
+  Stream<AuthState> get onAuthStateChange {
+    try {
+      return _supabase.auth.onAuthStateChange;
+    } catch (_) {
+      return const Stream<AuthState>.empty();
+    }
+  }
 
   /// Master sync function to pass all app data to the structured Supabase tables.
   Future<void> syncFullData(
-    CycleViewModel provider, {
+    DashboardViewModel provider, {
     HealthLogsViewModel? healthLogs,
     DailyMonitorViewModel? dailyMonitor,
   }) async {
@@ -68,7 +83,7 @@ class AuthService {
 
       // 2. Sync Periods (Convert flat dates into start/end intervals)
       final List<DateTime> validDates =
-          provider.selectedDates.whereType<DateTime>().toList()..sort();
+          provider.cycleModel.periodDates.toList()..sort();
 
       if (validDates.isNotEmpty) {
         List<Map<String, dynamic>> periodsToSync = [];
@@ -98,7 +113,7 @@ class AuthService {
       // 3. Sync Daily Logs (Flow, Pain, Symptoms, Activities)
       // We'll collect all dates that have any logged data
       final allLoggedDates = {
-        ...provider.selectedDates.whereType<DateTime>(),
+        ...provider.cycleModel.periodDates,
         if (healthLogs != null) ...healthLogs.loggedHealthDates,
         if (dailyMonitor != null) ...dailyMonitor.loggedHealthDates,
       };

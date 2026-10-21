@@ -6,6 +6,7 @@ import 'package:period_tracker/register_screen.dart';
 import 'package:period_tracker/features/dashboard/views/dashboard_view.dart';
 import 'package:period_tracker/features/calendar/views/calendar_view.dart';
 import 'package:period_tracker/features/dashboard/viewmodels/dashboard_viewmodel.dart';
+import 'package:period_tracker/frontend/onboarding_page/onboarding_page.dart';
 
 class AppRoutes {
   AppRoutes._(); // Private constructor
@@ -15,6 +16,7 @@ class AppRoutes {
   static const String dashboard = '/dashboard';
   static const String register = '/register';
   static const String calendar = '/calendar';
+  static const String onboardingPage = '/onboarding';
 
   static Map<String, WidgetBuilder> define(
     ValueNotifier<DateTime> mockTodayNotifier,
@@ -23,27 +25,7 @@ class AppRoutes {
       root: (context) => const LoginScreen(),
       login: (context) => const LoginScreen(),
       register: (context) => const RegisterScreen(),
-      dashboard: (context) => ValueListenableBuilder<DateTime>(
-        valueListenable: mockTodayNotifier,
-        builder: (context, date, _) {
-          return DashboardView(simulatedToday: date);
-        },
-      ),
-      calendar: (context) => ValueListenableBuilder<DateTime>(
-        valueListenable: mockTodayNotifier,
-        builder: (context, date, _) {
-          final dashboardViewModel = Provider.of<DashboardViewModel>(
-            context,
-            listen: false,
-          );
-          return CalendarView(dashboardViewModel: dashboardViewModel);
-        },
-      ),
-
-      // ONBOARDING PAGE
-      onboardingPage: (context) => OnboardingPage(),
-
-      // DASHBOARD
+      onboardingPage: (context) => const OnboardingPage(),
       dashboard: (context) => ValueListenableBuilder<DateTime>(
         valueListenable: mockTodayNotifier,
         builder: (context, date, _) {

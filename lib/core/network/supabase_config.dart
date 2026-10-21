@@ -9,7 +9,7 @@ class SupabaseConfig {
   static Future<void> initialize() async {
     await Supabase.initialize(
       url: AppConstants.supabaseUrl,
-      anonKey: AppConstants.supabaseAnonKey,
+      publishableKey: AppConstants.supabaseAnonKey,
     );
     _client = Supabase.instance.client;
   }

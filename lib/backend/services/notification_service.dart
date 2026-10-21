@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:period_tracker/frontend/notification/notification_detail_screen.dart';
-import 'package:period_tracker/backend/viewModels/cycle_view_model.dart';
+import 'package:period_tracker/features/dashboard/viewmodels/dashboard_viewmodel.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:period_tracker/backend/services/database_service.dart';
 
@@ -14,17 +14,31 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
   final DatabaseService _dbService = DatabaseService();
-  CycleViewModel? _CycleViewModel;
+  DashboardViewModel? _viewModel;
   BuildContext? _context;
   String? _fcmToken;
 
-  void initialize(BuildContext context, CycleViewModel CycleViewModel) async {
+  Future<void> initialize(BuildContext context, DashboardViewModel viewModel) async {
     _context = context;
-    _CycleViewModel = CycleViewModel;
+    _viewModel = viewModel;
 
-    await _initializeLocalNotifications();
-    _setupFirebaseMessaging();
-    _scheduleDailyNotifications();
+    try {
+      await _initializeLocalNotifications();
+    } catch (e) {
+      debugPrint('Local notification setup failed: $e');
+    }
+
+    try {
+      await _setupFirebaseMessaging();
+    } catch (e) {
+      debugPrint('Firebase messaging setup failed: $e');
+    }
+
+    try {
+      _scheduleDailyNotifications();
+    } catch (e) {
+      debugPrint('Daily notification scheduling failed: $e');
+    }
   }
 
   Future<void> _initializeLocalNotifications() async {
@@ -65,7 +79,7 @@ class NotificationService {
     );
   }
 
-  void _setupFirebaseMessaging() async {
+  Future<void> _setupFirebaseMessaging() async {
     // Request permission for notifications
     NotificationSettings settings = await _messaging.requestPermission(
       alert: true,
@@ -74,9 +88,9 @@ class NotificationService {
     );
 
     if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-      print('User granted permission');
+      debugPrint('User granted permission');
     } else {
-      print('User declined or has not accepted permission');
+      debugPrint('User declined or has not accepted permission');
     }
 
     // Get FCM token (vapidKey is required for Web)
@@ -84,7 +98,7 @@ class NotificationService {
       vapidKey:
           "BKuih-r3cgrc93IHsLhChqgAmCQ_KbiOXvDrZmcF5ESOdVlpFuqfGAhk7G_QPSJ9tOOkbWkjkIi86tAOnpJOXFU", // Paste your key from Firebase Console here
     );
-    print("FCM Token: $_fcmToken");
+    debugPrint("FCM Token: $_fcmToken");
 
     if (_fcmToken != null) {
       await _dbService.updateFcmToken(_fcmToken!);
@@ -216,7 +230,7 @@ class NotificationService {
   String? get fcmToken => _fcmToken;
 
   void _checkAndSendNotifications() {
-    if (_CycleViewModel == null) return;
+    if (_viewModel == null) return;
 
     final today = DateTime.now();
     final todayOnly = DateTime(today.year, today.month, today.day);
@@ -256,10 +270,10 @@ class NotificationService {
   }
 
   bool _isTodayInPredictedPeriod(DateTime today) {
-    if (_CycleViewModel == null) return false;
+    if (_viewModel == null) return false;
 
-    final nextPeriodDate = _CycleViewModel!.nextPeriodDate;
-    final mensesLength = _CycleViewModel!.mensesLength;
+    final nextPeriodDate = _viewModel!.nextPeriodDate;
+    final mensesLength = _viewModel!.mensesLength;
 
     for (int i = 0; i < mensesLength; i++) {
       final periodDay = nextPeriodDate.add(Duration(days: i));
@@ -277,10 +291,10 @@ class NotificationService {
   }
 
   bool _isTodayInFertileWindow(DateTime today) {
-    if (_CycleViewModel == null) return false;
+    if (_viewModel == null) return false;
 
-    final fertileStart = _CycleViewModel!.fertileWindowStart;
-    final fertileEnd = _CycleViewModel!.fertileWindowEnd;
+    final fertileStart = _viewModel!.fertileWindowStart;
+    final fertileEnd = _viewModel!.fertileWindowEnd;
 
     final fertileStartOnly = DateTime(
       fertileStart.year,
@@ -299,9 +313,9 @@ class NotificationService {
   }
 
   bool _isTodayOvulationDay(DateTime today) {
-    if (_CycleViewModel == null) return false;
+    if (_viewModel == null) return false;
 
-    final ovulationDate = _CycleViewModel!.ovulationDate;
+    final ovulationDate = _viewModel!.ovulationDate;
     final ovulationOnly = DateTime(
       ovulationDate.year,
       ovulationDate.month,
@@ -315,9 +329,9 @@ class NotificationService {
   /// period and sends the appropriate countdown or period-overlap notification.
   /// Returns `true` if a notification was sent (used for deduplication).
   bool _checkPrePeriodCountdown(DateTime today) {
-    if (_CycleViewModel == null) return false;
+    if (_viewModel == null) return false;
 
-    final nextPeriod = _CycleViewModel!.nextPeriodDate;
+    final nextPeriod = _viewModel!.nextPeriodDate;
     final nextPeriodOnly = DateTime(
       nextPeriod.year,
       nextPeriod.month,
@@ -326,14 +340,14 @@ class NotificationService {
 
     final daysUntilPeriod = nextPeriodOnly.difference(today).inDays;
 
-    // Only act within the 7-day countdown window (1–7 days before).
+    // Only act within the 7-day countdown window (1Ã¢â‚¬â€œ7 days before).
     if (daysUntilPeriod < 1 || daysUntilPeriod > 7) return false;
 
     // If today is also a predicted period day (overlap with current cycle),
     // send the special "mark it down" message instead of a countdown.
-    if (_CycleViewModel!.isPredictedPeriodDay(today)) {
+    if (_viewModel!.isPredictedPeriodDay(today)) {
       _sendNotification(
-        title: "Period Check-In 📋",
+        title: "Period Check-In Ã°Å¸â€œâ€¹",
         body:
             "Hello user! Are you on your period today? Mark it down the calendar now.",
         notificationType: "pre_period_overlap",
@@ -344,13 +358,13 @@ class NotificationService {
     // Build the countdown message.
     final String body;
     if (daysUntilPeriod == 1) {
-      body = "Your period starts tomorrow! Get ready! 🌸";
+      body = "Your period starts tomorrow! Get ready! Ã°Å¸Å’Â¸";
     } else {
-      body = "Your period is expected in $daysUntilPeriod days. Get ready! 🌸";
+      body = "Your period is expected in $daysUntilPeriod days. Get ready! Ã°Å¸Å’Â¸";
     }
 
     _sendNotification(
-      title: "Period Countdown ⏳",
+      title: "Period Countdown Ã¢ÂÂ³",
       body: body,
       notificationType: "pre_period_countdown",
     );
@@ -359,7 +373,7 @@ class NotificationService {
 
   /// Send notification via FCM (for server-triggered notifications)
   /// Also sends local notification for immediate testing
-  void _sendNotification({
+  Future<void> _sendNotification({
     required String title,
     required String body,
     String notificationType = "period_reminder",
@@ -378,7 +392,7 @@ class NotificationService {
         },
       };
 
-      print("FCM Message ready for backend: $message");
+      debugPrint("FCM Message ready for backend: $message");
       // TODO: Send this to your backend API for server-triggered notifications
     }
   }

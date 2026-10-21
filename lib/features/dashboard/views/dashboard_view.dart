@@ -1,12 +1,17 @@
+import 'dart:async';
 import 'package:flutter/material.dart' hide DateUtils;
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:period_tracker/features/dashboard/viewmodels/dashboard_viewmodel.dart';
 import 'package:period_tracker/features/dashboard/views/components/period_calendar.dart';
 import 'package:period_tracker/features/dashboard/views/components/period_description.dart';
 import 'package:period_tracker/features/dashboard/views/components/health_log.dart';
 import 'package:period_tracker/features/dashboard/views/components/floating_nav.dart';
+import 'package:period_tracker/backend/services/auth_service.dart';
+import 'package:period_tracker/backend/viewModels/health_logs_view_model.dart';
+import 'package:period_tracker/backend/viewModels/daily_monitor_view_model.dart';
 
 class DashboardView extends StatefulWidget {
   final DateTime simulatedToday;
@@ -23,6 +28,9 @@ class DashboardView extends StatefulWidget {
 }
 
 class _DashboardViewState extends State<DashboardView> {
+  final AuthService _authService = AuthService();
+  StreamSubscription<AuthState>? _authSubscription;
+
   List<DateTime?> _dates = [];
   int _calendarVersion = 0;
   bool _isEditingPeriodDates = false;
@@ -36,6 +44,95 @@ class _DashboardViewState extends State<DashboardView> {
     super.initState();
     final DateTime now = widget.simulatedToday;
     _selectedViewDate = DateTime(now.year, now.month, now.day);
+
+    // Listen for auth state changes to rebuild the UI when login succeeds via Google.
+    _authSubscription = _authService.onAuthStateChange.listen((data) async {
+      debugPrint(
+        'Auth State Changed: ${data.event} | User: ${data.session?.user.email}',
+      );
+
+      // Only fetch data if the user just signed in or restored a session.
+      // This prevents redundant fetches on every token refresh.
+      final bool shouldFetch =
+          data.event == AuthChangeEvent.signedIn ||
+          data.event == AuthChangeEvent.initialSession;
+
+      if (shouldFetch && data.session != null && mounted) {
+        try {
+          final dates = await _authService.fetchPeriodDates();
+          if (mounted) {
+            context.read<DashboardViewModel>().updateDates(dates);
+          }
+        } catch (e) {
+          debugPrint('Error fetching period dates: $e');
+        }
+      }
+
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _showLoginModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'FlowTrack Login',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              const Text('Sign in to sync your cycle data and settings.'),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    try {
+                      await _authService.signInWithGoogle();
+                      // Note: On Web, the lines below will not run due to page redirect
+                    } catch (e) {
+                      debugPrint('Login Error: $e');
+                    }
+                    if (context.mounted) Navigator.pop(context);
+                  },
+                  icon: const Icon(Icons.account_circle),
+                  label: const Text('Sign-in with Google'),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Pushes the local cycle state to Supabase. Silently skips when the user
+  /// is not signed in.
+  Future<void> _syncToSupabase(DashboardViewModel cycleData) async {
+    try {
+      await _authService.syncFullData(
+        cycleData,
+        healthLogs: context.read<HealthLogsViewModel?>(),
+        dailyMonitor: context.read<DailyMonitorViewModel?>(),
+      );
+    } catch (e) {
+      debugPrint('Sync Error: $e');
+    }
   }
 
   @override
@@ -47,7 +144,8 @@ class _DashboardViewState extends State<DashboardView> {
     final DateTime lastDate = DateTime(now.year + 2, now.month, now.day);
 
     final bool isApple = Theme.of(context).platform == TargetPlatform.iOS;
-    final String displayUsername = widget.username ?? "Bebi";
+    final String displayUsername =
+        (ModalRoute.of(context)?.settings.arguments as String?) ?? "Bebi";
 
     final String periodButtonText = cycleData.cycleModel.periodDates.isEmpty
         ? 'Add Period Dates'
@@ -62,17 +160,35 @@ class _DashboardViewState extends State<DashboardView> {
         ),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 20),
-            child: GestureDetector(
-              onTap: () => debugPrint("Profile Clicked!"),
-              child: const CircleAvatar(
-                backgroundImage: NetworkImage(
-                  'https://static.zerochan.net/Sailor.Chibi.Moon.full.3236721.jpg',
+          if (_authService.currentUser == null)
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: TextButton(
+                onPressed: () => _showLoginModal(context),
+                child: const Text(
+                  'Login',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.pinkAccent,
+                  ),
+                ),
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(right: 20),
+              child: GestureDetector(
+                onTap: () => debugPrint("Profile Clicked!"),
+                child: CircleAvatar(
+                  backgroundColor: Colors.pink.shade100,
+                  child: _authService.currentUser?.email != null
+                      ? Text(
+                          _authService.currentUser!.email![0].toUpperCase(),
+                        )
+                      : const Icon(Icons.person, color: Colors.pink),
                 ),
               ),
             ),
-          ),
         ],
       ),
       body: SingleChildScrollView(
@@ -131,13 +247,14 @@ class _DashboardViewState extends State<DashboardView> {
                             isApple
                                 ? CupertinoButton(
                                     color: Colors.pink,
-                                    onPressed: () {
+                                    onPressed: () async {
                                       setState(() {
                                         cycleData.updateDates(
                                             _dates.whereType<DateTime>().toList());
                                         _calendarVersion++;
                                         _isEditingPeriodDates = false;
                                       });
+                                      await _syncToSupabase(cycleData);
                                     },
                                     child: const Text(
                                       'Save',
@@ -149,13 +266,14 @@ class _DashboardViewState extends State<DashboardView> {
                                       backgroundColor: Colors.pink,
                                       foregroundColor: Colors.white,
                                     ),
-                                    onPressed: () {
+                                    onPressed: () async {
                                       setState(() {
                                         cycleData.updateDates(
                                             _dates.whereType<DateTime>().toList());
                                         _calendarVersion++;
                                         _isEditingPeriodDates = false;
                                       });
+                                      await _syncToSupabase(cycleData);
                                     },
                                     child: const Text('Save'),
                                   ),
@@ -255,9 +373,10 @@ class _DashboardViewState extends State<DashboardView> {
                   selectedViewDate: _selectedViewDate,
                   todayDate: todayDate,
                   cycleData: cycleData,
-                  onConfirmPeriod: (date, isConfirmed) {
+                  onConfirmPeriod: (date, isConfirmed) async {
                     if (isConfirmed) {
                       cycleData.addDate(date);
+                      await _syncToSupabase(cycleData);
                     }
                   },
                 ),

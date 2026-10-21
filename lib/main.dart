@@ -2,11 +2,23 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-// APP ROUTE
-import 'app_routes.dart';
-import '/providers/cycle_provider.dart';
+// Firebase
+import 'package:firebase_core/firebase_core.dart';
 
-// import 'dart:io'; // Required for Platform.isIOS (this is solely for mobile platforms, not compatible with the web)
+// CORE
+import 'package:period_tracker/core/core.dart';
+import 'package:period_tracker/core/routes/app_routes.dart';
+import 'package:period_tracker/backend/firebase_options.dart';
+
+// FEATURES
+import 'package:period_tracker/features/features.dart';
+
+// VIEW MODELS
+import 'package:period_tracker/backend/viewModels/health_logs_view_model.dart';
+import 'package:period_tracker/backend/viewModels/daily_monitor_view_model.dart';
+
+// SERVICES
+import 'package:period_tracker/backend/services/notification_service.dart';
 
 // Global debug date (change this and hot reload)
 final ValueNotifier<DateTime> mockToday = ValueNotifier(DateTime.now());
@@ -15,15 +27,44 @@ final ValueNotifier<DateTime> mockToday = ValueNotifier(DateTime.now());
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 // 1. The Ignition Point
-void main() {
+void main() async {
   // 2.The Attachment
   // runApp() is only in main.dart
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize core utilities
+  // Initialize core utilities (local persistence)
   await PrefsUtils.init();
 
+  // Initialize the remote services in parallel to speed up startup.
+  // Failures are non fatal: the app still runs on local data.
+  try {
+    await Future.wait([
+      _initFirebase(),
+      _initSupabase(),
+    ]).timeout(const Duration(seconds: 10));
+  } catch (e) {
+    debugPrint('Startup services timed out or failed: $e');
+  }
+
   runApp(const PeriodTrackingApp());
+}
+
+Future<void> _initFirebase() async {
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('Firebase initialization failed: $e');
+  }
+}
+
+Future<void> _initSupabase() async {
+  try {
+    await SupabaseConfig.initialize();
+  } catch (e) {
+    debugPrint('Supabase initialization failed: $e');
+  }
 }
 
 // 3. MaterialApp: The Foundation
@@ -36,71 +77,52 @@ class PeriodTrackingApp extends StatelessWidget {
   // Returns the a Widget Tree
   @override
   Widget build(BuildContext context) {
-    // 1. Define your mock date here.
-    // Simply change this date and save (Hot Reload) to move "Today" in the app.
-    // final DateTime mockToday = DateTime.now();
-
-    return ChangeNotifierProvider(
-      create: (context) => CycleProvider(),
-      child: MaterialApp(
-        title: 'Period Tracker',
-        debugShowCheckedModeBanner:
-            false, // removes the "DEBUG" tag on the top right corner of the screen.
-        // 1. Set the starting screen
-        initialRoute: AppRoutes.dashboard,
-        // 2. Load the map from app_routes.dart file
-        routes: AppRoutes.define(mockToday),
-        // 3. Set the global theme
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.pinkAccent),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (context) => DashboardViewModel()..initialize(),
         ),
+        ChangeNotifierProvider(
+          create: (context) {
+            final vm = HealthLogsViewModel();
+            vm.initializeData();
+            return vm;
+          },
+        ),
+        ChangeNotifierProvider(
+          create: (context) {
+            final vm = DailyMonitorViewModel();
+            vm.initializeData();
+            return vm;
+          },
+        ),
+      ],
+      child: Builder(
+        builder: (context) {
+          // Initialize the notification service once the providers are ready.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            try {
+              final dashboardViewModel = Provider.of<DashboardViewModel>(
+                context,
+                listen: false,
+              );
+              NotificationService().initialize(context, dashboardViewModel);
+            } catch (e) {
+              debugPrint('Notification service initialization failed: $e');
+            }
+          });
+
+          return MaterialApp(
+            title: AppConstants.appName,
+            navigatorKey: navigatorKey,
+            debugShowCheckedModeBanner: false,
+            initialRoute: AppRoutes.dashboard,
+            routes: AppRoutes.define(mockToday),
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
+          );
+        },
       ),
     );
   }
 }
-
-/* 
-  main.dart's default screen 
-  DO NOT USE THIS! Since it already has multiple files connected.
-*/
-// class MyHomePage extends StatefulWidget {
-//   const MyHomePage({super.key, required this.title});
-
-//   // This widget is the home page of your application. It is stateful, meaning
-//   // that it has a State object (defined below) that contains fields that affect
-//   // how it looks.
-
-//   // This class is the configuration for the state. It holds the values (in this
-//   // case the title) provided by the parent (in this case the App widget) and
-//   // used by the build method of the State. Fields in a Widget subclass are
-//   // always marked "final".
-
-//   final String title;
-
-//   @override
-//   State<MyHomePage> createState() => _MyHomePageState();
-// }
-
-// class _MyHomePageState extends State<MyHomePage> {
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       // Horizontal bar at the top of the screen.
-//       appBar: AppBar(
-//         title: Text(widget.title),
-//         backgroundColor: Theme.of(context).colorScheme.inversePrimary /* safe for multi-platform checking */,
-//       ),
-
-//     );
-//   }
-// }
-
-/*  
-  NOTES:
-  - Dart requires the class name for static methods and enums, unlike languages like Swift.
-  - Why use Theme.of(context).platform?
-  - Using the Theme approach is often better for UI logic because it allows you to test your 
-    "Apple" layout on other platforms by simply overriding the ThemeData.platform in your MaterialApp. 
-    If you strictly want to know the physical hardware platform, you can also use defaultTargetPlatform 
-    after importing package:flutter/foundation.dart.
-*/
