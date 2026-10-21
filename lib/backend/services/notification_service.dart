@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:period_tracker/notification_detail_screen.dart';
-import 'package:period_tracker/providers/cycle_provider.dart';
+import 'package:period_tracker/frontend/notification/notification_detail_screen.dart';
+import 'package:period_tracker/backend/viewModels/cycle_view_model.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:period_tracker/backend/database_service.dart';
+import 'package:period_tracker/backend/services/database_service.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -14,13 +14,13 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
   final DatabaseService _dbService = DatabaseService();
-  CycleProvider? _cycleProvider;
+  CycleViewModel? _CycleViewModel;
   BuildContext? _context;
   String? _fcmToken;
 
-  void initialize(BuildContext context, CycleProvider cycleProvider) async {
+  void initialize(BuildContext context, CycleViewModel CycleViewModel) async {
     _context = context;
-    _cycleProvider = cycleProvider;
+    _CycleViewModel = CycleViewModel;
 
     await _initializeLocalNotifications();
     _setupFirebaseMessaging();
@@ -216,17 +216,23 @@ class NotificationService {
   String? get fcmToken => _fcmToken;
 
   void _checkAndSendNotifications() {
-    if (_cycleProvider == null) return;
+    if (_CycleViewModel == null) return;
 
     final today = DateTime.now();
     final todayOnly = DateTime(today.year, today.month, today.day);
 
-    // Check if today is in predicted period
-    if (_isTodayInPredictedPeriod(todayOnly)) {
+    // 7-day pre-period countdown check.
+    // Returns true if a countdown notification was sent, so we can
+    // skip the generic period reminder and avoid double notifications.
+    final sentCountdown = _checkPrePeriodCountdown(todayOnly);
+
+    // Check if today is in predicted period (skip if countdown already covered it)
+    if (!sentCountdown && _isTodayInPredictedPeriod(todayOnly)) {
       _sendNotification(
         title: "Period Reminder",
         body:
             "Today is your predicted period day. Have you started your period?",
+        notificationType: "period_reminder",
       );
     }
 
@@ -235,6 +241,7 @@ class NotificationService {
       _sendNotification(
         title: "Fertile Window",
         body: "Today is in your fertile window. Track your symptoms!",
+        notificationType: "fertile_window",
       );
     }
 
@@ -243,15 +250,16 @@ class NotificationService {
       _sendNotification(
         title: "Ovulation Day",
         body: "Today is your ovulation day!",
+        notificationType: "ovulation_day",
       );
     }
   }
 
   bool _isTodayInPredictedPeriod(DateTime today) {
-    if (_cycleProvider == null) return false;
+    if (_CycleViewModel == null) return false;
 
-    final nextPeriodDate = _cycleProvider!.nextPeriodDate;
-    final mensesLength = _cycleProvider!.mensesLength;
+    final nextPeriodDate = _CycleViewModel!.nextPeriodDate;
+    final mensesLength = _CycleViewModel!.mensesLength;
 
     for (int i = 0; i < mensesLength; i++) {
       final periodDay = nextPeriodDate.add(Duration(days: i));
@@ -269,10 +277,10 @@ class NotificationService {
   }
 
   bool _isTodayInFertileWindow(DateTime today) {
-    if (_cycleProvider == null) return false;
+    if (_CycleViewModel == null) return false;
 
-    final fertileStart = _cycleProvider!.fertileWindowStart;
-    final fertileEnd = _cycleProvider!.fertileWindowEnd;
+    final fertileStart = _CycleViewModel!.fertileWindowStart;
+    final fertileEnd = _CycleViewModel!.fertileWindowEnd;
 
     final fertileStartOnly = DateTime(
       fertileStart.year,
@@ -291,9 +299,9 @@ class NotificationService {
   }
 
   bool _isTodayOvulationDay(DateTime today) {
-    if (_cycleProvider == null) return false;
+    if (_CycleViewModel == null) return false;
 
-    final ovulationDate = _cycleProvider!.ovulationDate;
+    final ovulationDate = _CycleViewModel!.ovulationDate;
     final ovulationOnly = DateTime(
       ovulationDate.year,
       ovulationDate.month,
@@ -303,9 +311,59 @@ class NotificationService {
     return today.isAtSameMomentAs(ovulationOnly);
   }
 
+  /// Checks if today falls within the 7-day window before the next predicted
+  /// period and sends the appropriate countdown or period-overlap notification.
+  /// Returns `true` if a notification was sent (used for deduplication).
+  bool _checkPrePeriodCountdown(DateTime today) {
+    if (_CycleViewModel == null) return false;
+
+    final nextPeriod = _CycleViewModel!.nextPeriodDate;
+    final nextPeriodOnly = DateTime(
+      nextPeriod.year,
+      nextPeriod.month,
+      nextPeriod.day,
+    );
+
+    final daysUntilPeriod = nextPeriodOnly.difference(today).inDays;
+
+    // Only act within the 7-day countdown window (1–7 days before).
+    if (daysUntilPeriod < 1 || daysUntilPeriod > 7) return false;
+
+    // If today is also a predicted period day (overlap with current cycle),
+    // send the special "mark it down" message instead of a countdown.
+    if (_CycleViewModel!.isPredictedPeriodDay(today)) {
+      _sendNotification(
+        title: "Period Check-In 📋",
+        body:
+            "Hello user! Are you on your period today? Mark it down the calendar now.",
+        notificationType: "pre_period_overlap",
+      );
+      return true;
+    }
+
+    // Build the countdown message.
+    final String body;
+    if (daysUntilPeriod == 1) {
+      body = "Your period starts tomorrow! Get ready! 🌸";
+    } else {
+      body = "Your period is expected in $daysUntilPeriod days. Get ready! 🌸";
+    }
+
+    _sendNotification(
+      title: "Period Countdown ⏳",
+      body: body,
+      notificationType: "pre_period_countdown",
+    );
+    return true;
+  }
+
   /// Send notification via FCM (for server-triggered notifications)
   /// Also sends local notification for immediate testing
-  void _sendNotification({required String title, required String body}) async {
+  void _sendNotification({
+    required String title,
+    required String body,
+    String notificationType = "period_reminder",
+  }) async {
     // Send local notification (works when app is closed)
     await _sendLocalNotification(title: title, body: body);
 
@@ -316,7 +374,7 @@ class NotificationService {
         "notification": {"title": title, "body": body},
         "data": {
           "click_action": "FLUTTER_NOTIFICATION_CLICK",
-          "notification_type": "period_reminder",
+          "notification_type": notificationType,
         },
       };
 

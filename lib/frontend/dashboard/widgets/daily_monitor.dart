@@ -3,8 +3,9 @@ import 'package:hugeicons/hugeicons.dart';
 import 'package:provider/provider.dart';
 
 // Project files
-import '../../providers/cycle_provider.dart';
-import '../widgets/health_logger.dart';
+import '../../../backend/viewModels/cycle_view_model.dart';
+import '../../../backend/viewModels/daily_monitor_view_model.dart';
+import 'health_logger.dart';
 
 /// Mapping of symptom/activity names to HugeIcons
 final Map<String, dynamic> logIconMapping = {
@@ -113,7 +114,8 @@ class _HealthLogState extends State<HealthLog> {
 
   @override
   Widget build(BuildContext context) {
-    final cycleData = context.watch<CycleProvider>();
+    final cycleData = context.watch<CycleViewModel>();
+    final dailyMonitor = context.watch<DailyMonitorViewModel>();
     final viewDate = widget.selectedViewDate;
     final todayDate = widget.todayDate;
     bool showSymptoms = false;
@@ -203,7 +205,7 @@ class _HealthLogState extends State<HealthLog> {
                 subtitle: Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: LogTagList(
-                    items: cycleData.getSymptomsForDate(viewDate),
+                    items: dailyMonitor.getSymptomsForDate(viewDate),
                   ),
                 ),
                 trailing: const Icon(Icons.chevron_right),
@@ -219,7 +221,7 @@ class _HealthLogState extends State<HealthLog> {
                 subtitle: Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: LogTagList(
-                    items: cycleData.getActivitiesForDate(viewDate),
+                    items: dailyMonitor.getActivitiesForDate(viewDate),
                   ),
                 ),
                 trailing: const Icon(Icons.chevron_right),
@@ -276,17 +278,17 @@ class _SymptomsDialogState extends State<SymptomsDialog> {
   @override
   void initState() {
     super.initState();
-    final cycleData = context.read<CycleProvider>();
+    final dailyMonitor = context.read<DailyMonitorViewModel>();
     _tempSelection = Set.from(
       widget.type == 'Symptoms'
-          ? cycleData.getSymptomsForDate(widget.date)
-          : cycleData.getActivitiesForDate(widget.date),
+          ? dailyMonitor.getSymptomsForDate(widget.date)
+          : dailyMonitor.getActivitiesForDate(widget.date),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final cycleData = context.read<CycleProvider>();
+    final dailyMonitor = context.read<DailyMonitorViewModel>();
     final Map<String, List<String>> categories = widget.type == 'Symptoms'
         ? {
             'Symptoms': [
@@ -461,9 +463,9 @@ class _SymptomsDialogState extends State<SymptomsDialog> {
           child: const Text('Save'),
           onPressed: () {
             if (widget.type == 'Symptoms') {
-              cycleData.updateSymptoms(widget.date, _tempSelection);
+              dailyMonitor.updateSymptoms(widget.date, _tempSelection);
             } else {
-              cycleData.updateActivities(widget.date, _tempSelection);
+              dailyMonitor.updateActivities(widget.date, _tempSelection);
             }
             Navigator.of(context).pop();
           },

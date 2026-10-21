@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/daily_log.dart';
 
 class DatabaseService {
   final _supabase = Supabase.instance.client;
 
   /// Fetches daily logs for the currently authenticated user.
-  Future<List<Map<String, dynamic>>> fetchDailyLogs() async {
+  Future<List<DailyLogModel>> fetchDailyLogs() async {
     try {
       // The RLS policy automatically filters this to only show the logged-in user's data
       final response = await _supabase
@@ -13,7 +14,8 @@ class DatabaseService {
           .select()
           .order('date', ascending: false);
 
-      return List<Map<String, dynamic>>.from(response);
+      final rawData = List<Map<String, dynamic>>.from(response);
+      return rawData.map((json) => DailyLogModel.fromJson(json)).toList();
     } catch (error) {
       debugPrint('Error fetching logs: $error');
       return [];
@@ -21,12 +23,7 @@ class DatabaseService {
   }
 
   /// Inserts or updates daily log data for the current user.
-  Future<void> logTodayData({
-    required String flowIntensity,
-    required int painLevel,
-    required String mood,
-    DateTime? date,
-  }) async {
+  Future<void> logTodayData(DailyLogModel log) async {
     try {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) {
@@ -34,15 +31,13 @@ class DatabaseService {
         return;
       }
 
-      final targetDate = date ?? DateTime.now();
+      final json = log.toJson();
+      json['user_id'] = userId;
 
-      await _supabase.from('daily_logs').upsert({
-        'user_id': userId,
-        'date': targetDate.toIso8601String().split('T')[0], // YYYY-MM-DD
-        'flow_intensity': flowIntensity,
-        'pain_level': painLevel,
-        'mood': mood,
-      }, onConflict: 'user_id, date');
+      await _supabase.from('daily_logs').upsert(
+        json, 
+        onConflict: 'user_id, date'
+      );
 
       debugPrint('Successfully logged daily data!');
     } catch (error) {

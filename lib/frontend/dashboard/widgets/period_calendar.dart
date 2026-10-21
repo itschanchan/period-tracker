@@ -7,7 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 
 // Project files
-import 'package:period_tracker/providers/cycle_provider.dart';
+import 'package:period_tracker/backend/viewModels/cycle_view_model.dart';
 
 class PeriodCalendar extends StatefulWidget {
   const PeriodCalendar({
@@ -73,7 +73,7 @@ class _PeriodCalendarState extends State<PeriodCalendar> {
   @override
   Widget build(BuildContext context) {
     // The dashboard "finds" the provider that was created in the main.dart
-    final cycleData = context.watch<CycleProvider>();
+    final cycleData = context.watch<CycleViewModel>();
 
     // UI-only list for the picker. We ensure the 'selectedViewDate' is at index 0
     // so the scroll view jumps there, but we will filter it out of the actual
@@ -219,10 +219,10 @@ class _PeriodCalendarState extends State<PeriodCalendar> {
 
                       // Identify prediction flags
                       final isNextPeriod = cycleData.isPredictedPeriodDay(date);
-                      final isOvulation = cycleData.isPredictedOvulationDay(
-                        date,
-                      );
-                      final isFertile = cycleData.isPredictedFertileDay(date);
+                      final isOvulation = !widget.isEditingPeriodDates &&
+                          cycleData.isPredictedOvulationDay(date);
+                      final isFertile = !widget.isEditingPeriodDates &&
+                          cycleData.isPredictedFertileDay(date);
 
                       // Check if this is a predicted day that has already passed without confirmation
                       final bool isPastUnconfirmed =
@@ -388,7 +388,7 @@ class _PeriodCalendarState extends State<PeriodCalendar> {
                       if (newSelection.isEmpty) {
                         // Only auto-fill if the selection is completely empty (First Time Setup)
                         newSelection = List.generate(
-                          CycleProvider.defaultMensesLength,
+                          CycleViewModel.defaultMensesLength,
                           (i) => tappedDate!.add(Duration(days: i)),
                         );
                       } else {

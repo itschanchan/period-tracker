@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hugeicons/hugeicons.dart'; // Import for HugeIcon
-import 'package:period_tracker/dashboard/widgets/daily_monitor.dart'; // Import for SymptomsDialog
+import 'package:period_tracker/frontend/dashboard/widgets/daily_monitor.dart'; // Import for SymptomsDialog
 
 class HealthLogger extends StatefulWidget {
   final DateTime date; // Add date parameter
