@@ -10,9 +10,15 @@ import 'package:firebase_core/firebase_core.dart';
 import 'backend/firebase_options.dart';
 
 // APP ROUTE
-import 'package:period_tracker/app_routes.dart';
-import 'package:period_tracker/providers/cycle_provider.dart';
-import 'package:period_tracker/backend/notification_service.dart';
+import 'package:period_tracker/core/routes/app_routes.dart';
+
+// VIEW MODELS
+import 'package:period_tracker/backend/viewModels/cycle_view_model.dart';
+import 'package:period_tracker/backend/viewModels/health_logs_view_model.dart';
+import 'package:period_tracker/backend/viewModels/daily_monitor_view_model.dart';
+
+// SERVICES
+import 'package:period_tracker/backend/services/notification_service.dart';
 
 // Global debug date (change this and hot reload)
 final ValueNotifier<DateTime> mockToday = ValueNotifier(DateTime.now());
@@ -68,17 +74,31 @@ class PeriodTrackingApp extends StatelessWidget {
     // Simply change this date and save (Hot Reload) to move "Today" in the app.
     // final DateTime mockToday = DateTime.now();
 
-    return ChangeNotifierProvider(
-      create: (context) => CycleProvider(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (context) => CycleViewModel()),
+        ChangeNotifierProvider(
+          create: (context) {
+            final vm = HealthLogsViewModel();
+            vm.initializeData();
+            return vm;
+          },
+        ),
+        ChangeNotifierProvider(create: (context) => DailyMonitorViewModel()),
+      ],
       child: Builder(
         builder: (context) {
           // Initialize notification service after providers are set up
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            final cycleProvider = Provider.of<CycleProvider>(
-              context,
-              listen: false,
-            );
-            NotificationService().initialize(context, cycleProvider);
+            try {
+              final cycleViewModel = Provider.of<CycleViewModel>(
+                context,
+                listen: false,
+              );
+              NotificationService().initialize(context, cycleViewModel);
+            } catch (e) {
+              debugPrint('Notification service initialization failed: $e');
+            }
           });
 
           return MaterialApp(

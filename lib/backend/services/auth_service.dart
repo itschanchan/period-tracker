@@ -1,8 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../providers/cycle_provider.dart';
 
+// viewModels imports
+import '../viewModels/cycle_view_model.dart';
+import '../viewModels/health_logs_view_model.dart';
+import '../viewModels/daily_monitor_view_model.dart';
+
+// the AuthService class
 class AuthService {
   final _supabase = Supabase.instance.client;
 
@@ -44,7 +49,11 @@ class AuthService {
   Stream<AuthState> get onAuthStateChange => _supabase.auth.onAuthStateChange;
 
   /// Master sync function to pass all app data to the structured Supabase tables.
-  Future<void> syncFullData(CycleProvider provider) async {
+  Future<void> syncFullData(
+    CycleViewModel provider, {
+    HealthLogsViewModel? healthLogs,
+    DailyMonitorViewModel? dailyMonitor,
+  }) async {
     final user = currentUser;
     if (user == null) return;
 
@@ -90,7 +99,8 @@ class AuthService {
       // We'll collect all dates that have any logged data
       final allLoggedDates = {
         ...provider.selectedDates.whereType<DateTime>(),
-        ...provider.loggedHealthDates,
+        if (healthLogs != null) ...healthLogs.loggedHealthDates,
+        if (dailyMonitor != null) ...dailyMonitor.loggedHealthDates,
       };
 
       for (final date in allLoggedDates) {
@@ -102,8 +112,10 @@ class AuthService {
             .upsert({
               'user_id': user.id,
               'date': dateStr,
-              'flow_intensity': _mapFlowToText(provider.getFlowForDate(date)),
-              'pain_level': provider.getPainForDate(date),
+              'flow_intensity': _mapFlowToText(
+                healthLogs?.getFlowForDate(date) ?? 2.0,
+              ),
+              'pain_level': healthLogs?.getPainForDate(date) ?? 0,
             }, onConflict: 'user_id, date')
             .select('daily_log_id')
             .single();
@@ -115,7 +127,7 @@ class AuthService {
         }
 
         // b. Sync Symptoms
-        final symptoms = provider.getSymptomsForDate(date);
+        final symptoms = dailyMonitor?.getSymptomsForDate(date) ?? {};
         if (symptoms.isNotEmpty) {
           await _supabase.from('symptoms').delete().eq('daily_log_id', logId);
           await _supabase
@@ -128,7 +140,7 @@ class AuthService {
         }
 
         // c. Sync Activities
-        final activities = provider.getActivitiesForDate(date);
+        final activities = dailyMonitor?.getActivitiesForDate(date) ?? {};
         if (activities.isNotEmpty) {
           await _supabase.from('activities').delete().eq('daily_log_id', logId);
           await _supabase

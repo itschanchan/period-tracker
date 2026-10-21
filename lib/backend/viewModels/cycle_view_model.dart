@@ -1,84 +1,43 @@
 // Provider - Separates math and data from the UI
+// CycleViewModel: Manages cycle prediction, date selection, and calendar logic.
 import 'package:flutter/material.dart';
 import 'package:clock/clock.dart';
-import 'dart:io'; // Added to catch SocketException
-import '../backend/database_service.dart';
 
-class CycleProvider extends ChangeNotifier {
+// Models - database schemas
+import '../models/user.dart';
+import '../models/period_day.dart';
+
+class CycleViewModel extends ChangeNotifier {
   // Core Application Constants
   static const int defaultCycleLength = 28;
   static const int defaultMensesLength = 5;
   static const int lutealPhaseLength = 14;
 
-  static const List<String> flowIntensityLabels = [
-    "Very Light",
-    "Light",
-    "Moderate",
-    "Heavy",
-    "Super Heavy",
-  ];
+  UserModel _userModel = UserModel(id: 'local_user');
+  List<PeriodDayModel> _periodDays = [];
 
-  final DatabaseService _dbService = DatabaseService();
+  // Selected Dates from the Dashboard (computed from models)
+  List<DateTime?> get selectedDates => _periodDays.map((p) => p.date).toList();
 
-  // State management for database operations
-  bool _isLoading = false;
-  bool get isLoading => _isLoading;
+  // Map old variables to the model
+  DateTime? get _lastPeriodDateOverride => _userModel.lastPeriodDateOverride;
+  set _lastPeriodDateOverride(DateTime? val) {
+    _userModel = _userModel.copyWith(lastPeriodDateOverride: val);
+  }
 
-  // Selected Dates from the Dashboard
-  List<DateTime?> _selectedDates = [];
-  List<DateTime?> get selectedDates => _selectedDates;
+  int get _currentCycleLength => _userModel.cycleLength;
+  set _currentCycleLength(int val) {
+    _userModel = _userModel.copyWith(cycleLength: val);
+  }
 
-  // Track state changes to force UI rebuilds when decorations need refreshing
-  DateTime _lastUpdated = clock.now();
-  DateTime get lastUpdated => _lastUpdated;
+  int get _currentMensesLength => _userModel.mensesLength;
+  set _currentMensesLength(int val) {
+    _userModel = _userModel.copyWith(mensesLength: val);
+  }
 
-  // Private variables - these should eventually be loaded from local storage
-  DateTime? _lastPeriodDateOverride;
-  int _currentCycleLength = defaultCycleLength;
-  int _currentMensesLength = defaultMensesLength;
-  int _currentLutealPhaseLength = lutealPhaseLength;
-
-  // Logging data: Maps date to a set of items
-  final Map<DateTime, Set<String>> _symptomsLog = {};
-  final Map<DateTime, Set<String>> _activitiesLog = {};
-
-  // Flow and Pain tracking
-  final Map<DateTime, double> _flowLogs = {};
-  final Map<DateTime, int> _painLogs = {};
-
-  /// Initializes the provider by loading data from a persistent source.
-  /// Call this when the app starts.
-  Future<void> initializeData() async {
-    _isLoading = true;
-    notifyListeners();
-
-    try {
-      final logs = await _dbService.fetchDailyLogs();
-
-      for (var log in logs) {
-        final date = DateTime.parse(log['date']);
-
-        if (log['flow_intensity'] != null) {
-          final intensity = log['flow_intensity'] as String;
-          final index = flowIntensityLabels.indexOf(intensity);
-          if (index != -1) {
-            _flowLogs[date] = index.toDouble();
-          }
-        }
-
-        if (log['pain_level'] != null) {
-          _painLogs[date] = log['pain_level'] as int;
-        }
-      }
-      // _symptomsLog = await repository.getSymptoms();
-    } on SocketException catch (e) {
-      debugPrint("Network Error (Check your connection/IP): ${e.message}");
-    } catch (e) {
-      debugPrint("Error loading data: $e");
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
+  int get _currentLutealPhaseLength => _userModel.lutealPhaseLength;
+  set _currentLutealPhaseLength(int val) {
+    _userModel = _userModel.copyWith(lutealPhaseLength: val);
   }
 
   // Getter Variables
@@ -118,91 +77,14 @@ class CycleProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Returns a unique set of all dates that have any form of health data logged.
-  Set<DateTime> get loggedHealthDates => {
-    ..._symptomsLog.keys,
-    ..._activitiesLog.keys,
-    ..._flowLogs.keys,
-    ..._painLogs.keys,
-  };
-
-  // Manages symptoms and activities per date logged.
-  Set<String> getSymptomsForDate(DateTime date) =>
-      _symptomsLog[DateUtils.dateOnly(date)] ?? {};
-
-  Set<String> getActivitiesForDate(DateTime date) =>
-      _activitiesLog[DateUtils.dateOnly(date)] ?? {};
-
-  void updateSymptoms(DateTime date, Set<String> symptoms) {
-    _symptomsLog[DateUtils.dateOnly(date)] = symptoms;
-    notifyListeners();
-  }
-
-  void updateActivities(DateTime date, Set<String> activities) {
-    _activitiesLog[DateUtils.dateOnly(date)] = activities;
-    notifyListeners();
-  }
-
-  // Flow and Pain management
-  double getFlowForDate(DateTime date) =>
-      _flowLogs[DateUtils.dateOnly(date)] ?? 2.0;
-  int getPainForDate(DateTime date) => _painLogs[DateUtils.dateOnly(date)] ?? 0;
-
-  void updateFlow(DateTime date, double value) {
-    final normalizedDate = DateUtils.dateOnly(date);
-    _flowLogs[normalizedDate] = value;
-    _lastUpdated = clock.now();
-    notifyListeners();
-
-    // Persist to Database
-    _syncDailyLog(normalizedDate);
-  }
-
-  void updatePain(DateTime date, int value) {
-    final normalizedDate = DateUtils.dateOnly(date);
-    _painLogs[normalizedDate] = value;
-    _lastUpdated = clock.now();
-    notifyListeners();
-
-    // Persist to Database
-    _syncDailyLog(normalizedDate);
-  }
-
-  /// Syncs the current state of flow, pain, and mood for a specific date to the database.
-  Future<void> _syncDailyLog(DateTime date) async {
-    final flowValue = getFlowForDate(date);
-    final painValue = getPainForDate(date);
-
-    // Map flowValue (double 0-4) to String label
-    final flowIntensity =
-        flowIntensityLabels[flowValue.round().clamp(0, flowIntensityLabels.length - 1)];
-
-    // For now, mood defaults to 'Normal' or similar if not explicitly tracked
-    // You can refine this by checking your symptoms/mood logs.
-    String mood = "Normal";
-    final symptoms = getSymptomsForDate(date);
-    if (symptoms.contains('Happy')) mood = 'Happy';
-    if (symptoms.contains('Sad')) mood = 'Sad';
-    if (symptoms.contains('Anxious')) mood = 'Anxious';
-    if (symptoms.contains('Irritated')) mood = 'Irritated';
-
-    await _dbService.logTodayData(
-      flowIntensity: flowIntensity,
-      painLevel: painValue,
-      mood: mood,
-      date: date,
-    );
-  }
-
   // Calculation: getter for the firsr recorderd period start.
   // Used for the period_description.dart (Cycle [firstRecordedPeriodStart])
   DateTime? get firstRecordedPeriodStart {
-    if (_selectedDates.isEmpty) return null;
-    // The _selectedDates are already sorted by updateDates
+    if (_periodDays.isEmpty) return null;
     return DateTime(
-      _selectedDates.first!.year,
-      _selectedDates.first!.month,
-      _selectedDates.first!.day,
+      _periodDays.first.date.year,
+      _periodDays.first.date.month,
+      _periodDays.first.date.day,
     );
   }
 
@@ -220,14 +102,12 @@ class CycleProvider extends ChangeNotifier {
   /// Checks if a date is a predicted period day (recurring)
   bool isPredictedPeriodDay(DateTime date) {
     // Do not show predictions if no dates have been set yet
-    if (_selectedDates.isEmpty) return false;
+    if (_periodDays.isEmpty) return false;
 
     final target = DateUtils.dateOnly(date);
 
     // 1. Never show a prediction for a day that is already confirmed as a period.
-    if (_selectedDates.any(
-      (d) => d != null && DateUtils.isSameDay(d, target),
-    )) {
+    if (_periodDays.any((p) => DateUtils.isSameDay(p.date, target))) {
       return false;
     }
 
@@ -252,14 +132,12 @@ class CycleProvider extends ChangeNotifier {
   /// Checks if a date is within the predicted fertile window (recurring)
   bool isPredictedFertileDay(DateTime date) {
     // Do not show predictions if no dates have been set yet
-    if (_selectedDates.isEmpty) return false;
+    if (_periodDays.isEmpty) return false;
 
     final target = DateUtils.dateOnly(date);
 
     // Do not show fertile predictions on confirmed period days.
-    if (_selectedDates.any(
-      (d) => d != null && DateUtils.isSameDay(d, target),
-    )) {
+    if (_periodDays.any((p) => DateUtils.isSameDay(p.date, target))) {
       return false;
     }
 
@@ -288,7 +166,7 @@ class CycleProvider extends ChangeNotifier {
 
   /// Returns the 1-indexed day of the cycle for a given date.
   int getDayInCycle(DateTime date) {
-    if (_selectedDates.isEmpty) return 0;
+    if (_periodDays.isEmpty) return 0;
     final anchor = lastPeriodDate;
     final base = DateTime(anchor.year, anchor.month, anchor.day);
     final target = DateTime(date.year, date.month, date.day);
@@ -302,7 +180,7 @@ class CycleProvider extends ChangeNotifier {
   /// Checks if a date is the predicted ovulation day (recurring)
   bool isPredictedOvulationDay(DateTime date) {
     // Do not show predictions if no dates have been set yet
-    if (_selectedDates.isEmpty) return false;
+    if (_periodDays.isEmpty) return false;
 
     final target = DateUtils.dateOnly(date);
 
@@ -325,8 +203,8 @@ class CycleProvider extends ChangeNotifier {
   /// Adds a single date to the selected dates list and updates calculations.
   /// This ensures confirming a prediction simply appends it to the history.
   void addDate(DateTime date) {
-    if (!_selectedDates.any((d) => d != null && DateUtils.isSameDay(d, date))) {
-      updateDates([..._selectedDates, date]);
+    if (!_periodDays.any((p) => DateUtils.isSameDay(p.date, date))) {
+      updateDates([...selectedDates, date]);
     }
   }
 
@@ -336,7 +214,10 @@ class CycleProvider extends ChangeNotifier {
     // 1. Filter and sort dates to ensure they are chronological.
     final validDates = dates.whereType<DateTime>().toList();
     validDates.sort();
-    _selectedDates = validDates;
+
+    _periodDays = validDates
+        .map((d) => PeriodDayModel(date: d, isPredicted: false))
+        .toList();
 
     // 2. Identify period "blocks" to find start dates and actual durations.
     if (validDates.isNotEmpty) {
@@ -419,7 +300,6 @@ class CycleProvider extends ChangeNotifier {
       }
     }
 
-    _lastUpdated = clock.now();
     notifyListeners();
   }
 }

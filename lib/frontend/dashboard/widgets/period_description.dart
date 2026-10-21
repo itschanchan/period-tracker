@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 // Project files
-import '../../providers/cycle_provider.dart';
+import '../../../backend/viewModels/cycle_view_model.dart';
+import '../../../backend/viewModels/health_logs_view_model.dart';
 
 class PeriodDescription extends StatefulWidget {
   final DateTime? _selectedViewDate;
   final DateTime todayDate;
-  final CycleProvider cycleData;
+  final CycleViewModel cycleData;
   final Function(DateTime date, bool confirmed)? onConfirmPeriod;
 
   const PeriodDescription({
@@ -27,11 +29,11 @@ class _PeriodDescriptionState extends State<PeriodDescription> {
   /// Shows a platform-specific number picker for pain levels 0-10.
   void _showPainPicker(
     BuildContext context,
-    CycleProvider cycleData,
+    HealthLogsViewModel healthLogs,
     DateTime viewDate,
     bool isApple,
   ) {
-    final int currentPain = cycleData.getPainForDate(viewDate);
+    final int currentPain = healthLogs.getPainForDate(viewDate);
 
     if (isApple) {
       showCupertinoModalPopup(
@@ -51,7 +53,7 @@ class _PeriodDescriptionState extends State<PeriodDescription> {
                       initialItem: currentPain,
                     ),
                     onSelectedItemChanged: (int value) {
-                      cycleData.updatePain(viewDate, value);
+                      healthLogs.updatePain(viewDate, value);
                     },
                     children: List.generate(
                       11,
@@ -90,7 +92,7 @@ class _PeriodDescriptionState extends State<PeriodDescription> {
                     initialItem: currentPain,
                   ),
                   onSelectedItemChanged: (index) =>
-                      cycleData.updatePain(viewDate, index),
+                      healthLogs.updatePain(viewDate, index),
                   childDelegate: ListWheelChildBuilderDelegate(
                     childCount: 11,
                     builder: (context, index) => Center(
@@ -125,6 +127,7 @@ class _PeriodDescriptionState extends State<PeriodDescription> {
 
     final viewDate = widget._selectedViewDate!;
     final cycleData = widget.cycleData;
+    final healthLogs = context.watch<HealthLogsViewModel>();
     final todayDate = widget.todayDate;
     int cycleNumber = 1; // Default to Cycle 1
     int dayInCycle = cycleData.getDayInCycle(viewDate);
@@ -187,7 +190,7 @@ class _PeriodDescriptionState extends State<PeriodDescription> {
 
       // 3. Fertile Window status
       String fReport = '';
-      const int postOvulationBuffer = 4; // Matches logic in CycleProvider
+      const int postOvulationBuffer = 4; // Matches logic in CycleViewModel
       if (cycleData.isPredictedFertileDay(viewDate)) {
         final rem = (ov + postOvulationBuffer) - dayInCycle;
         fReport =
@@ -295,7 +298,7 @@ class _PeriodDescriptionState extends State<PeriodDescription> {
                                 Padding(
                                   padding: const EdgeInsets.only(left: 12),
                                   child: Text(
-                                    'Flow: ${CycleProvider.flowIntensityLabels[cycleData.getFlowForDate(viewDate).round().clamp(0, CycleProvider.flowIntensityLabels.length - 1)]}',
+                                    'Flow: ${HealthLogsViewModel.flowIntensityLabels[healthLogs.getFlowForDate(viewDate).round().clamp(0, HealthLogsViewModel.flowIntensityLabels.length - 1)]}',
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 12,
@@ -303,14 +306,14 @@ class _PeriodDescriptionState extends State<PeriodDescription> {
                                   ),
                                 ),
                                 Slider(
-                                  value: cycleData.getFlowForDate(viewDate),
+                                  value: healthLogs.getFlowForDate(viewDate),
                                   min: 0,
                                   max: 4,
                                   divisions: 4,
                                   activeColor: Colors.redAccent,
                                   onChanged: (val) {
                                     setState(() {
-                                      cycleData.updateFlow(viewDate, val);
+                                      healthLogs.updateFlow(viewDate, val);
                                     });
                                   },
                                 ),
@@ -332,7 +335,7 @@ class _PeriodDescriptionState extends State<PeriodDescription> {
                               GestureDetector(
                                 onTap: () => _showPainPicker(
                                   context,
-                                  cycleData,
+                                  healthLogs,
                                   viewDate,
                                   isApple,
                                 ),
@@ -345,7 +348,7 @@ class _PeriodDescriptionState extends State<PeriodDescription> {
                                   ),
                                   child: Center(
                                     child: Text(
-                                      '${cycleData.getPainForDate(viewDate)}',
+                                      '${healthLogs.getPainForDate(viewDate)}',
                                       style: const TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.bold,

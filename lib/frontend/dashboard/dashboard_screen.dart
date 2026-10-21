@@ -9,8 +9,10 @@ import 'package:flutter/cupertino.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // Project files
-import '../providers/cycle_provider.dart';
-import '../backend/auth_service.dart';
+import '../../backend/viewModels/cycle_view_model.dart';
+import '../../backend/viewModels/health_logs_view_model.dart';
+import '../../backend/viewModels/daily_monitor_view_model.dart';
+import '../../backend/services/auth_service.dart';
 
 // Dashboard Components
 import 'widgets/period_calendar.dart';
@@ -102,7 +104,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         try {
           final dates = await _authService.fetchPeriodDates();
           if (mounted) {
-            context.read<CycleProvider>().updateDates(dates);
+            context.read<CycleViewModel>().updateDates(dates);
           }
         } catch (e) {
           debugPrint('Error fetching period dates: $e');
@@ -168,7 +170,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     // The dashboard "finds" the provider that was created in the main.dart
-    final cycleData = context.watch<CycleProvider>();
+    final cycleData = context.watch<CycleViewModel>();
+    final healthLogs = context.watch<HealthLogsViewModel>();
+    final dailyMonitor = context.watch<DailyMonitorViewModel>();
 
     // Initialize the selected view date to today if nothing is selected yet
     /* 
@@ -292,6 +296,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           _initialDatesForEdit,
                                         );
                                         _isEditingPeriodDates = false;
+                                        _scrollTriggerNotifier.value = null;
                                         _scrollTriggerNotifier.value =
                                             todayDate;
                                       });
@@ -312,6 +317,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           _initialDatesForEdit,
                                         );
                                         _isEditingPeriodDates = false;
+                                        _scrollTriggerNotifier.value = null;
                                         _scrollTriggerNotifier.value =
                                             todayDate;
                                       });
@@ -327,12 +333,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       setState(() {
                                         // Save the local draft to the provider
                                         cycleData.updateDates(_dates);
+                                        _scrollTriggerNotifier.value = null;
                                         _scrollTriggerNotifier.value =
                                             todayDate;
                                         _isEditingPeriodDates = false;
                                       });
                                       await _authService.syncFullData(
                                         cycleData,
+                                        healthLogs: healthLogs,
+                                        dailyMonitor: dailyMonitor,
                                       );
                                     },
                                     child: const Text(
@@ -349,12 +358,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       setState(() {
                                         // Save the local draft to the provider
                                         cycleData.updateDates(_dates);
+                                        _scrollTriggerNotifier.value = null;
                                         _scrollTriggerNotifier.value =
                                             todayDate;
                                         _isEditingPeriodDates = false;
                                       });
                                       await _authService.syncFullData(
                                         cycleData,
+                                        healthLogs: healthLogs,
+                                        dailyMonitor: dailyMonitor,
                                       );
                                     },
                                     child: const Text('Save'),
@@ -371,6 +383,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               // Sync local list with current provider data before editing
                               _dates = List.from(cycleData.selectedDates);
                               _initialDatesForEdit = List.from(_dates);
+                              _scrollTriggerNotifier.value = null;
                               _scrollTriggerNotifier.value = todayDate;
                             });
                           },
@@ -390,6 +403,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               // Sync local list with current provider data before editing
                               _dates = List.from(cycleData.selectedDates);
                               _initialDatesForEdit = List.from(_dates);
+                              _scrollTriggerNotifier.value = null;
                               _scrollTriggerNotifier.value = todayDate;
                             });
                           },
@@ -467,7 +481,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   onConfirmPeriod: (date, isConfirmed) async {
                     if (isConfirmed) {
                       cycleData.addDate(date);
-                      await _authService.syncFullData(cycleData);
+                      await _authService.syncFullData(
+                        cycleData,
+                        healthLogs: healthLogs,
+                        dailyMonitor: dailyMonitor,
+                      );
                     }
                   },
                 ),
@@ -564,8 +582,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }) {
     // Optimized: Only the trigger changes, no full screen setState().
     void onPressed() {
-      _selectedViewDate = today;
-      _scrollTriggerNotifier.value = today;
+      setState(() {
+        _selectedViewDate = today;
+        _scrollTriggerNotifier.value = null;
+        _scrollTriggerNotifier.value = today;
+      });
     }
 
     if (isApple) {
