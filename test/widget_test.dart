@@ -1,30 +1,91 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:period_tracker/main.dart';
+import 'package:provider/provider.dart';
+import 'package:visibility_detector/visibility_detector.dart';
+import 'package:period_tracker/backend/viewModels/cycle_view_model.dart';
+import 'package:period_tracker/frontend/dashboard/widgets/period_calendar.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const PeriodTrackingApp());
-
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  setUpAll(() {
+    // Make VisibilityDetector updates synchronous in test environment
+    VisibilityDetectorController.instance.updateInterval = Duration.zero;
   });
+
+  testWidgets(
+    'PeriodCalendar hides fertile window and ovulation dates in selection mode',
+    (WidgetTester tester) async {
+      // 1. Setup the view model with some period history to generate predictions
+      final cycleViewModel = CycleViewModel();
+      final anchorDate = DateTime(2026, 5, 1);
+      cycleViewModel.updateDates([anchorDate]);
+
+      // Ovulation and Fertile window days should be predicted for the next cycle
+      final ovulationDate = DateTime(2026, 5, 15);
+      final fertileDate = DateTime(2026, 5, 12);
+
+      expect(cycleViewModel.isPredictedOvulationDay(ovulationDate), isTrue);
+      expect(cycleViewModel.isPredictedFertileDay(fertileDate), isTrue);
+
+      // 2. Render calendar in NON-selection mode (isEditingPeriodDates = false)
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ChangeNotifierProvider<CycleViewModel>.value(
+              value: cycleViewModel,
+              child: PeriodCalendar(
+                scrollTrigger: ValueNotifier<DateTime?>(null),
+                selectedViewDate: anchorDate,
+                firstDate: DateTime(2026, 5, 1),
+                lastDate: DateTime(2026, 5, 30),
+                now: anchorDate,
+                todayDate: anchorDate,
+                isEditingPeriodDates: false,
+                value: [anchorDate],
+                onDateTapped: (_) {},
+                onDatesChanged: (_) {},
+                onTodayVisibilityChanged: (_, __, ___) {},
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Pump frames to let the visibility detector and other state settle
+      await tester.pumpAndSettle();
+
+      // Verify that ovulation (star) and fertile window (favorite) icons are present in normal mode
+      expect(find.byIcon(Icons.star), findsAtLeast(1));
+      expect(find.byIcon(Icons.favorite), findsAtLeast(1));
+
+      // 3. Render calendar in selection/editing mode (isEditingPeriodDates = true)
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ChangeNotifierProvider<CycleViewModel>.value(
+              value: cycleViewModel,
+              child: PeriodCalendar(
+                scrollTrigger: ValueNotifier<DateTime?>(null),
+                selectedViewDate: anchorDate,
+                firstDate: DateTime(2026, 5, 1),
+                lastDate: DateTime(2026, 5, 30),
+                now: anchorDate,
+                todayDate: anchorDate,
+                isEditingPeriodDates: true,
+                value: [anchorDate],
+                onDateTapped: (_) {},
+                onDatesChanged: (_) {},
+                onTodayVisibilityChanged: (_, __, ___) {},
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Verify that ovulation and fertile window icons are completely hidden in selection mode
+      expect(find.byIcon(Icons.star), findsNothing);
+      expect(find.byIcon(Icons.favorite), findsNothing);
+    },
+  );
 }

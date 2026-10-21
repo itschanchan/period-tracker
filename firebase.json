@@ -1,0 +1,25 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "period-tracker-02b22",
+          "appId": "1:178689790799:android:59dc3c81ff0b3b79652b3a",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "period-tracker-02b22",
+          "configurations": {
+            "android": "1:178689790799:android:59dc3c81ff0b3b79652b3a",
+            "ios": "1:178689790799:ios:ce3b37c87ff0dc29652b3a",
+            "macos": "1:178689790799:ios:ce3b37c87ff0dc29652b3a",
+            "web": "1:178689790799:web:885f654c59f0262e652b3a",
+            "windows": "1:178689790799:web:17eef67937a98e18652b3a"
+          }
+        }
+      }
+    }
+  }
+}
