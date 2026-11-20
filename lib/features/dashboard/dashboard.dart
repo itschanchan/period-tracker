@@ -1,3 +1,4 @@
+export 'models/models.dart';
 export 'models/cycle_model.dart';
 export 'viewmodels/dashboard_viewmodel.dart';
 export 'views/dashboard_view.dart';

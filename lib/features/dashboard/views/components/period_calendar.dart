@@ -77,9 +77,10 @@ class _PeriodCalendarState extends State<PeriodCalendar> {
       'calendar_${widget.calendarVersion}_${datesSignature}_${widget.isEditingPeriodDates}_${cycleData.lastUpdated.millisecondsSinceEpoch}',
     );
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
+    return Material(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
         // Multi-Select Scroll Calendar
         // Step 2: Multi Scroll = Fixed Day Indicator (Header)
         // We build this manually so it stays fixed while you scroll the page.
@@ -88,7 +89,6 @@ class _PeriodCalendarState extends State<PeriodCalendar> {
             horizontal: 8,
           ), // Adjust character spacing in the header.
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: ['S', 'M', 'T', 'W', 'TH', 'F', 'S'].asMap().entries.map((
               entry,
             ) {
@@ -134,7 +134,7 @@ class _PeriodCalendarState extends State<PeriodCalendar> {
               return false;
             },
             child: CalendarDatePicker2(
-              key: calendarKey,
+                key: calendarKey,
               config: CalendarDatePicker2Config(
                 firstDate: widget.firstDate,
                 lastDate: widget.lastDate,
@@ -386,7 +386,7 @@ class _PeriodCalendarState extends State<PeriodCalendar> {
           ),
         ),
       ],
-    );
+    ));
   }
 
   /// Builds the content of a day cell, wrapping the 'Today' indicator with visibility tracking.

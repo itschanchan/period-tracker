@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:period_tracker/login_screen.dart';
-import 'package:period_tracker/register_screen.dart';
+import 'package:period_tracker/features/auth/views/login_screen.dart';
+import 'package:period_tracker/features/auth/views/register_screen.dart';
 import 'package:period_tracker/features/dashboard/views/dashboard_view.dart';
 import 'package:period_tracker/features/calendar/views/calendar_view.dart';
 import 'package:period_tracker/features/dashboard/viewmodels/dashboard_viewmodel.dart';
-import 'package:period_tracker/frontend/onboarding_page/onboarding_page.dart';
+import 'package:period_tracker/features/onboarding/views/onboarding_page.dart';
 
 class AppRoutes {
   AppRoutes._(); // Private constructor

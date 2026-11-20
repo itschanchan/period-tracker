@@ -4,21 +4,13 @@ import 'package:provider/provider.dart';
 
 // Firebase
 import 'package:firebase_core/firebase_core.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 // CORE
 import 'package:period_tracker/core/core.dart';
-import 'package:period_tracker/core/routes/app_routes.dart';
-import 'package:period_tracker/backend/firebase_options.dart';
 
 // FEATURES
 import 'package:period_tracker/features/features.dart';
-
-// VIEW MODELS
-import 'package:period_tracker/backend/viewModels/health_logs_view_model.dart';
-import 'package:period_tracker/backend/viewModels/daily_monitor_view_model.dart';
-
-// SERVICES
-import 'package:period_tracker/backend/services/notification_service.dart';
 
 // Global debug date (change this and hot reload)
 final ValueNotifier<DateTime> mockToday = ValueNotifier(DateTime.now());
@@ -35,9 +27,10 @@ void main() async {
   // Initialize core utilities (local persistence)
   await PrefsUtils.init();
 
-  // Initialize the remote services in parallel to speed up startup.
-  // Failures are non fatal: the app still runs on local data.
+  // Initialize ConfigService and remote services
   try {
+    await ConfigService.instance.load();
+    
     await Future.wait([
       _initFirebase(),
       _initSupabase(),
@@ -52,7 +45,7 @@ void main() async {
 Future<void> _initFirebase() async {
   try {
     await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
+      options: ConfigService.instance.getFirebaseOptions(),
     );
   } catch (e) {
     debugPrint('Firebase initialization failed: $e');
@@ -61,7 +54,11 @@ Future<void> _initFirebase() async {
 
 Future<void> _initSupabase() async {
   try {
-    await SupabaseConfig.initialize();
+    final supabaseConfig = ConfigService.instance.getSupabaseConfig();
+    await Supabase.initialize(
+      url: supabaseConfig.url,
+      publishableKey: supabaseConfig.anonKey,
+    );
   } catch (e) {
     debugPrint('Supabase initialization failed: $e');
   }
@@ -81,20 +78,6 @@ class PeriodTrackingApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(
           create: (context) => DashboardViewModel()..initialize(),
-        ),
-        ChangeNotifierProvider(
-          create: (context) {
-            final vm = HealthLogsViewModel();
-            vm.initializeData();
-            return vm;
-          },
-        ),
-        ChangeNotifierProvider(
-          create: (context) {
-            final vm = DailyMonitorViewModel();
-            vm.initializeData();
-            return vm;
-          },
         ),
       ],
       child: Builder(

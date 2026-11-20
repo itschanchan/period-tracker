@@ -1,8 +1,9 @@
+// DashboardViewModel - Main view model for the dashboard feature
 import 'package:flutter/material.dart' hide DateUtils;
 import 'package:clock/clock.dart';
-import '../../../../core/core.dart';
-import '../models/cycle_model.dart';
-import '../../../../data/data.dart';
+import 'package:period_tracker/core/core.dart';
+import 'package:period_tracker/features/dashboard/models/cycle_model.dart';
+import 'package:period_tracker/data/data.dart';
 
 class DashboardViewModel extends ChangeNotifier {
   final CycleRepository _repository;

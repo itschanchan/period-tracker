@@ -9,26 +9,20 @@ import 'package:period_tracker/features/dashboard/views/components/period_calend
 import 'package:period_tracker/features/dashboard/views/components/period_description.dart';
 import 'package:period_tracker/features/dashboard/views/components/health_log.dart';
 import 'package:period_tracker/features/dashboard/views/components/floating_nav.dart';
-import 'package:period_tracker/backend/services/auth_service.dart';
-import 'package:period_tracker/backend/viewModels/health_logs_view_model.dart';
-import 'package:period_tracker/backend/viewModels/daily_monitor_view_model.dart';
+import 'package:period_tracker/data/repositories/auth_repository.dart';
 
 class DashboardView extends StatefulWidget {
   final DateTime simulatedToday;
   final String? username;
 
-  const DashboardView({
-    super.key,
-    required this.simulatedToday,
-    this.username,
-  });
+  const DashboardView({super.key, required this.simulatedToday, this.username});
 
   @override
   State<DashboardView> createState() => _DashboardViewState();
 }
 
 class _DashboardViewState extends State<DashboardView> {
-  final AuthService _authService = AuthService();
+  final SupabaseAuthRepository _authRepository = SupabaseAuthRepository();
   StreamSubscription<AuthState>? _authSubscription;
 
   List<DateTime?> _dates = [];
@@ -46,7 +40,7 @@ class _DashboardViewState extends State<DashboardView> {
     _selectedViewDate = DateTime(now.year, now.month, now.day);
 
     // Listen for auth state changes to rebuild the UI when login succeeds via Google.
-    _authSubscription = _authService.onAuthStateChange.listen((data) async {
+    _authSubscription = _authRepository.onAuthStateChange.listen((data) async {
       debugPrint(
         'Auth State Changed: ${data.event} | User: ${data.session?.user.email}',
       );
@@ -59,7 +53,7 @@ class _DashboardViewState extends State<DashboardView> {
 
       if (shouldFetch && data.session != null && mounted) {
         try {
-          final dates = await _authService.fetchPeriodDates();
+          final dates = await _authRepository.fetchPeriodDates();
           if (mounted) {
             context.read<DashboardViewModel>().updateDates(dates);
           }
@@ -102,7 +96,7 @@ class _DashboardViewState extends State<DashboardView> {
                 child: ElevatedButton.icon(
                   onPressed: () async {
                     try {
-                      await _authService.signInWithGoogle();
+                      await _authRepository.signInWithGoogle();
                       // Note: On Web, the lines below will not run due to page redirect
                     } catch (e) {
                       debugPrint('Login Error: $e');
@@ -125,10 +119,18 @@ class _DashboardViewState extends State<DashboardView> {
   /// is not signed in.
   Future<void> _syncToSupabase(DashboardViewModel cycleData) async {
     try {
-      await _authService.syncFullData(
-        cycleData,
-        healthLogs: context.read<HealthLogsViewModel?>(),
-        dailyMonitor: context.read<DailyMonitorViewModel?>(),
+      final user = _authRepository.currentUser;
+      if (user == null) return;
+
+      await _authRepository.syncFullData(
+        user.id,
+        cycleLength: cycleData.cycleLength,
+        mensesLength: cycleData.mensesLength,
+        periodDates: cycleData.cycleModel.periodDates,
+        flowLogs: const {},
+        painLogs: const {},
+        symptomsLog: cycleData.cycleModel.symptomsLog,
+        activitiesLog: cycleData.cycleModel.activitiesLog,
       );
     } catch (e) {
       debugPrint('Sync Error: $e');
@@ -160,7 +162,7 @@ class _DashboardViewState extends State<DashboardView> {
         ),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
-          if (_authService.currentUser == null)
+          if (_authRepository.currentUser == null)
             Padding(
               padding: const EdgeInsets.only(right: 8.0),
               child: TextButton(
@@ -181,9 +183,9 @@ class _DashboardViewState extends State<DashboardView> {
                 onTap: () => debugPrint("Profile Clicked!"),
                 child: CircleAvatar(
                   backgroundColor: Colors.pink.shade100,
-                  child: _authService.currentUser?.email != null
+                  child: _authRepository.currentUser?.email != null
                       ? Text(
-                          _authService.currentUser!.email![0].toUpperCase(),
+                          _authRepository.currentUser!.email![0].toUpperCase(),
                         )
                       : const Icon(Icons.person, color: Colors.pink),
                 ),
@@ -220,7 +222,9 @@ class _DashboardViewState extends State<DashboardView> {
                                     color: Colors.grey,
                                     onPressed: () {
                                       setState(() {
-                                        _dates = List.from(_initialDatesForEdit);
+                                        _dates = List.from(
+                                          _initialDatesForEdit,
+                                        );
                                         _isEditingPeriodDates = false;
                                         _calendarVersion++;
                                       });
@@ -237,7 +241,9 @@ class _DashboardViewState extends State<DashboardView> {
                                     ),
                                     onPressed: () {
                                       setState(() {
-                                        _dates = List.from(_initialDatesForEdit);
+                                        _dates = List.from(
+                                          _initialDatesForEdit,
+                                        );
                                         _isEditingPeriodDates = false;
                                         _calendarVersion++;
                                       });
@@ -250,7 +256,8 @@ class _DashboardViewState extends State<DashboardView> {
                                     onPressed: () async {
                                       setState(() {
                                         cycleData.updateDates(
-                                            _dates.whereType<DateTime>().toList());
+                                          _dates.whereType<DateTime>().toList(),
+                                        );
                                         _calendarVersion++;
                                         _isEditingPeriodDates = false;
                                       });
@@ -269,7 +276,8 @@ class _DashboardViewState extends State<DashboardView> {
                                     onPressed: () async {
                                       setState(() {
                                         cycleData.updateDates(
-                                            _dates.whereType<DateTime>().toList());
+                                          _dates.whereType<DateTime>().toList(),
+                                        );
                                         _calendarVersion++;
                                         _isEditingPeriodDates = false;
                                       });
@@ -280,36 +288,40 @@ class _DashboardViewState extends State<DashboardView> {
                           ],
                         )
                       : isApple
-                          ? CupertinoButton(
-                              color: Colors.pink,
-                              onPressed: () {
-                                setState(() {
-                                  _isEditingPeriodDates = true;
-                                  _dates = List.from(cycleData.cycleModel.periodDates);
-                                  _initialDatesForEdit = List.from(_dates);
-                                  _calendarVersion++;
-                                });
-                              },
-                              child: Text(
-                                periodButtonText,
-                                style: const TextStyle(color: Colors.white),
-                              ),
-                            )
-                          : ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.pink,
-                                foregroundColor: Colors.white,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _isEditingPeriodDates = true;
-                                  _dates = List.from(cycleData.cycleModel.periodDates);
-                                  _initialDatesForEdit = List.from(_dates);
-                                  _calendarVersion++;
-                                });
-                              },
-                              child: Text(periodButtonText),
-                            ),
+                      ? CupertinoButton(
+                          color: Colors.pink,
+                          onPressed: () {
+                            setState(() {
+                              _isEditingPeriodDates = true;
+                              _dates = List.from(
+                                cycleData.cycleModel.periodDates,
+                              );
+                              _initialDatesForEdit = List.from(_dates);
+                              _calendarVersion++;
+                            });
+                          },
+                          child: Text(
+                            periodButtonText,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        )
+                      : ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.pink,
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _isEditingPeriodDates = true;
+                              _dates = List.from(
+                                cycleData.cycleModel.periodDates,
+                              );
+                              _initialDatesForEdit = List.from(_dates);
+                              _calendarVersion++;
+                            });
+                          },
+                          child: Text(periodButtonText),
+                        ),
                 ],
               ),
               const SizedBox(height: 20),
@@ -325,7 +337,9 @@ class _DashboardViewState extends State<DashboardView> {
                     isEditingPeriodDates: _isEditingPeriodDates,
                     value: _isEditingPeriodDates
                         ? _dates
-                        : cycleData.cycleModel.periodDates.map((d) => d as DateTime?).toList(),
+                        : cycleData.cycleModel.periodDates
+                              .map((d) => d as DateTime?)
+                              .toList(),
                     onDateTapped: (date) {
                       setState(() {
                         _selectedViewDate = date;
@@ -338,16 +352,16 @@ class _DashboardViewState extends State<DashboardView> {
                     },
                     onTodayVisibilityChanged:
                         (isVisible, isAbove, isManualScroll) {
-                      if (isVisible || isManualScroll) {
-                        if (_isTodayVisible != isVisible ||
-                            _isTodayAbove != isAbove) {
-                          setState(() {
-                            _isTodayVisible = isVisible;
-                            _isTodayAbove = isAbove;
-                          });
-                        }
-                      }
-                    },
+                          if (isVisible || isManualScroll) {
+                            if (_isTodayVisible != isVisible ||
+                                _isTodayAbove != isAbove) {
+                              setState(() {
+                                _isTodayVisible = isVisible;
+                                _isTodayAbove = isAbove;
+                              });
+                            }
+                          }
+                        },
                   ),
                   if (!_isTodayVisible)
                     Positioned(

@@ -50,3 +50,5 @@ app.*.map.json
 
 # environment variables
 .env
+config.json
+lib/core/config.json

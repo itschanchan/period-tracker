@@ -1,50 +1,100 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# Flutter Period Tracker Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. MVVM Architecture Compliance
+All features MUST follow the Model-View-ViewModel (MVVM) architecture pattern. The separation of concerns is non-negotiable:
+- **Models** (`features/*/models/`) represent the data layer and core business rules
+- **ViewModels** (`features/*/viewModels/`) act as the bridge between View and Model, exposing state and commands
+- **Views** (`features/*/views/`) render the UI and capture user input only
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+Rationale: MVVM ensures testability, maintainability, and clear separation between business logic and UI rendering.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. Constitutional Folder Structure
+The `lib/` directory MUST strictly adhere to this structure:
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+```
+lib/
+|-- core/                    # Shared global resources
+|   |-- constants/           # Application-wide constants (AppConstants)
+|   |-- network/             # Supabase/Firebase configuration
+|   |-- routes/              # Central route definitions (AppRoutes)
+|   |-- theme/               # Global theme management (AppTheme)
+|   |-- utils/               # Shared utilities (date, prefs, helpers)
+|   |-- core.dart            # Core barrel export
+|
+|-- data/                    # Data layer - schemas & persistence
+|   |-- local/               # Local data sources (Hive, SharedPreferences)
+|   |-- repositories/        # Repository interfaces & implementations
+|   |-- data.dart            # Data barrel export
+|
+|-- features/                # Feature modules (MVVM per feature)
+|   |-- <feature-name>/
+|   |   |-- models/          # Feature-specific data models
+|   |   |-- viewModels/      # Feature-specific ViewModels
+|   |   |-- views/           # Feature-specific UI
+|   |   |   |-- components/  # Reusable view components
+|   |   |-- <feature>.dart   # Feature barrel export
+|   |-- features.dart        # Features barrel export
+|
+|-- main.dart                # Application entry point ONLY
+```
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+Rationale: Enforces consistent organization, enables feature isolation, and prevents circular dependencies.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+### III. No Redundant Orphan Files
+No files SHALL exist outside the defined folder structure. Any business logic found in incorrect locations MUST be moved to its constitutional home:
+- Shared constants → `core/constants/`
+- Theme definitions → `core/theme/`
+- Utility functions → `core/utils/`
+- Data models/schemas → `data/` or `features/*/models/`
+- Database setup → `data/local/` & `data/repositories/`
+- Feature-specific logic → respective `features/*/` MVVM folders
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+Rationale: Prevents technical debt, ensures discoverability, and maintains architectural integrity.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+### IV. Barrel Export Discipline
+Every folder with multiple Dart files MUST provide a barrel export file (e.g., `core.dart`, `data.dart`, `features.dart`, `<feature>.dart`). Direct imports of nested files from outside their feature/module are PROHIBITED.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+Rationale: Controls public API surface, simplifies imports, and enables refactoring without breaking consumers.
+
+### V. Test-First Development (NON-NEGOTIABLE)
+TDD is mandatory for all new features and bug fixes:
+1. Write failing tests first
+2. Get user approval on test cases
+3. Implement to make tests pass
+4. Refactor with confidence
+
+Integration tests REQUIRED for: repository contracts, ViewModel logic, cross-feature data flows.
+
+Rationale: Guarantees correctness, documents expected behavior, enables safe refactoring.
+
+## Architecture Standards
+
+### State Management
+Provider pattern with `ChangeNotifier` for ViewModels. No global state outside ViewModels. UI rebuilds triggered only via `notifyListeners()`.
+
+### Dependency Direction
+`features/` → `core/` and `data/` (one-way). `core/` and `data/` MUST NOT import from `features/`.
+
+### Error Handling
+All async operations in ViewModels MUST use try-catch with user-facing error states. Never let exceptions crash the UI.
+
+### Data Flow
+View → ViewModel (commands) → Repository → Data Source → Model → ViewModel (state) → View
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes all other development practices. Amendments require:
+1. Documented rationale in PR description
+2. Architecture review approval
+3. Migration plan for existing code
+4. Version bump per semantic versioning
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Compliance Review**: All PRs must verify:
+- Folder structure adherence
+- MVVM separation (no business logic in Views)
+- Barrel exports used correctly
+- Tests written for new logic
+
+**Version**: 1.0.0 | **Ratified**: 2026-10-22 | **Last Amended**: 2026-10-22
